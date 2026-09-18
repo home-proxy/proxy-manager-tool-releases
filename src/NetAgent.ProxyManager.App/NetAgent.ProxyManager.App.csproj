@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ProxyManager.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Config + UI assets are embedded into the assembly so the single-file exe
+         runs standalone: downloading just ProxyManager.App.exe is enough, no loose
+         files need to be copied next to it. Disk files (if present) still override. -->
+    <None Remove="appsettings.json" />
+    <None Remove="appsettings.Production.json" />
+    <None Remove="Assets\**\*" />
+    <EmbeddedResource Include="appsettings.json" LogicalName="appsettings.json" />
+    <EmbeddedResource Include="appsettings.Production.json" LogicalName="appsettings.Production.json" />
+    <EmbeddedResource Include="Assets\**\*">
+      <LogicalName>Assets/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+
+    <!-- Development overrides stay on disk for local runs only. -->
+    <None Update="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+
+    <None Remove="Installers\README.md" />
+    <None Remove="Installers\ProxifierSetup.exe" />
+    <Content Include="Installers\README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Proxifier installer is embedded (when present) so the standalone exe can
+         silently install Proxifier without shipping a loose file. Optional so CI
+         still builds before the licensed binary is committed. -->
+    <EmbeddedResource Include="Installers\ProxifierSetup.exe" Condition="Exists('Installers\ProxifierSetup.exe')" LogicalName="Installers/ProxifierSetup.exe" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetAgent.ProxyManager.Core\NetAgent.ProxyManager.Core.csproj" />
+    <ProjectReference Include="..\NetAgent.ProxyManager.Infrastructure\NetAgent.ProxyManager.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="Svg.Skia" Version="5.1.1" />
+  </ItemGroup>
+
+</Project>

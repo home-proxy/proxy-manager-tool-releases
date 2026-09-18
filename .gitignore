@@ -1,0 +1,51 @@
+# ---- Build outputs ----
+[Bb]in/
+[Oo]bj/
+artifacts/
+publish/
+out/
+
+# ---- Visual Studio ----
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# ---- Rider / JetBrains ----
+.idea/
+*.sln.iml
+
+# ---- VS Code ----
+.vscode/
+
+# ---- Temp / scratch ----
+.tmp/
+*.tmp
+*.log
+*.cache
+
+# ---- Test / coverage results ----
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+# ---- NuGet ----
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+.nuget/
+
+# ---- Installer output ----
+installer/Output/
+*.exe.log
+
+# ---- OS junk ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

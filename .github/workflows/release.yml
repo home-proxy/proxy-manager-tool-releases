@@ -1,0 +1,85 @@
+name: Release ProxyManager
+
+# Builds the standalone single-file exe on Windows and attaches it to a GitHub
+# Release. The Tool Proxy download page picks up the ".exe" asset of the latest
+# release, so pushing a tag like v1.2.0 is all that is needed to ship a new build.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $v = '${{ github.event.inputs.version }}'
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+            throw "Version must look like 1.2.0 (got '$v')."
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Test
+        run: dotnet test src/NetAgent.ProxyManager.Tests/NetAgent.ProxyManager.Tests.csproj -c Release
+
+      - name: Publish single-file self-contained exe
+        shell: pwsh
+        run: |
+          dotnet publish src/NetAgent.ProxyManager.App/NetAgent.ProxyManager.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -p:InformationalVersion=${{ steps.version.outputs.version }} `
+            -p:IncludeSourceRevisionInInformationalVersion=false `
+            -p:DebugType=None -p:DebugSymbols=false `
+            -o artifacts/publish/win-x64-self-contained
+
+      - name: Stage release asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/release | Out-Null
+          Copy-Item artifacts/publish/win-x64-self-contained/ProxyManager.App.exe `
+            artifacts/release/ProxyManager.App.exe -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProxyManager-${{ steps.version.outputs.version }}
+          path: artifacts/release/ProxyManager.App.exe
+
+      - name: Create / update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ProxyManager v${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/release/ProxyManager.App.exe
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
