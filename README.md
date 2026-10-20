@@ -16,6 +16,7 @@ Tài liệu dành cho intern/dev mới, đọc theo thứ tự số:
 | [docs/06-build-and-release.md](docs/06-build-and-release.md) | Build bản publish (self-contained/framework-dependent), đóng gói installer, phát hành GitHub Release |
 | [docs/07-branding-assets.md](docs/07-branding-assets.md) | Luồng gán logo & merchant id theo từng đại lý |
 | [docs/08-adding-new-emulator.md](docs/08-adding-new-emulator.md) | Checklist thêm hỗ trợ một loại giả lập mới |
+| [docs/09-chrome-profiles.md](docs/09-chrome-profiles.md) | Tab "Chrome Profile": mỗi profile Chrome một proxy, trình duyệt riêng của tool, rule chặn chống lộ IP |
 
 ## Cấu trúc solution
 

@@ -5,7 +5,8 @@ namespace NetAgent.ProxyManager.Core.Services;
 
 public sealed class ProxifierSessionService(
     IProxifierProfileBuilder profileBuilder,
-    IProxifierService proxifierService) : IProxifierSessionService
+    IProxifierService proxifierService,
+    IChromeBrowserProvisioner? chromeBrowserProvisioner = null) : IProxifierSessionService
 {
     public async Task<ProxifierSessionResult> StartAsync(
         AppSettings settings,
@@ -17,7 +18,8 @@ public sealed class ProxifierSessionService(
         {
             Proxies = proxies,
             Rules = applications,
-            DefaultRouteDirect = settings.DefaultRouteDirect
+            DefaultRouteDirect = settings.DefaultRouteDirect,
+            BlockedExecutablePaths = chromeBrowserProvisioner?.GetInstalledExecutablePaths() ?? []
         });
 
         var profilePath = await WriteProfileAsync(settings.ProfileOutputDirectory, "active.ppx", profile.Xml, cancellationToken);

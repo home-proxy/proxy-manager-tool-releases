@@ -11,6 +11,8 @@ public sealed class ApplicationRule
     public string? EmulatorInstanceName { get; set; }
     public string? RuntimeProcessName { get; set; }
     public string? RuntimeExecutablePath { get; set; }
+    public string? ChromeProfileName { get; set; }
+    public string? ChromeUserDataDirectory { get; set; }
     public Guid? AssignedProxyId { get; set; }
     public string? Warning { get; set; }
     public bool IsEnabled { get; set; } = true;
@@ -18,6 +20,11 @@ public sealed class ApplicationRule
 
     public string GetApplicationName()
     {
+        if (TargetType == ApplicationTargetType.ChromeProfile)
+        {
+            return string.IsNullOrWhiteSpace(ChromeProfileName) ? "Chrome profile" : ChromeProfileName.Trim();
+        }
+
         if (TargetType == ApplicationTargetType.Emulator)
         {
             if (!string.IsNullOrWhiteSpace(EmulatorInstanceName))

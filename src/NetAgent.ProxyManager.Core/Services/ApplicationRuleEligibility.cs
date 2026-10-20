@@ -37,6 +37,14 @@ public static class ApplicationRuleEligibility
             return ApplicationRuleEligibilityResult.Invalid("Hãy mở giả lập");
         }
 
+        // Chrome profiles stay eligible while closed: opening one is what produces its runtime PID,
+        // and the session must already be running (with the leak guard) before that happens.
+        if (rule.TargetType == ApplicationTargetType.ChromeProfile &&
+            string.IsNullOrWhiteSpace(rule.ChromeUserDataDirectory))
+        {
+            return ApplicationRuleEligibilityResult.Invalid("Chrome profile chưa có thư mục dữ liệu.");
+        }
+
         if (rule.AssignedProxyId is null ||
             !proxiesById.TryGetValue(rule.AssignedProxyId.Value, out var proxy))
         {

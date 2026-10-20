@@ -12,7 +12,12 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
     {
         ArgumentNullException.ThrowIfNull(model);
 
-        var enabledRules = model.Rules.Where(rule => rule.IsEnabled).ToList();
+        // A closed Chrome profile has no NetworkService PID, so it simply has nothing to route yet.
+        // Unlike an emulator that is off, this is the normal resting state, not a configuration error.
+        var enabledRules = model.Rules
+            .Where(rule => rule.IsEnabled)
+            .Where(rule => rule.TargetType != ApplicationTargetType.ChromeProfile || rule.ProcessId is > 0)
+            .ToList();
         var missingExecutableTargets = enabledRules
             .Where(rule => rule.TargetType == ApplicationTargetType.Executable && string.IsNullOrWhiteSpace(rule.ExecutableName))
             .ToList();
@@ -79,6 +84,10 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
                             new XElement("Applications", FormatApplicationValue(GetApplicationSelector(rule))),
                             new XElement("Name", GetRuleName(rule)));
                     }),
+                    model.BlockedExecutablePaths
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Select(CreateBlockedExecutableRule),
                     new XElement("Rule",
                         new XAttribute("enabled", "true"),
                         new XElement("Action", new XAttribute("type", model.DefaultRouteDirect ? "Direct" : "Block")),
@@ -143,6 +152,17 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
             new XElement("Name", "Localhost"));
     }
 
+    // Must sit after every per-application rule (Proxifier stops at the first match) and before
+    // "Default", so it only catches processes of this executable that no pid rule claimed.
+    private static XElement CreateBlockedExecutableRule(string executablePath)
+    {
+        return new XElement("Rule",
+            new XAttribute("enabled", "true"),
+            new XElement("Action", new XAttribute("type", "Block")),
+            new XElement("Applications", FormatApplicationValue(executablePath)),
+            new XElement("Name", "Chrome Profile leak guard"));
+    }
+
     private static XElement CreateProxyElement(ProxyServer proxy, int profileId)
     {
         var proxyElement = new XElement("Proxy",
@@ -184,7 +204,7 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
 
     private static string GetApplicationSelector(ApplicationRule rule)
     {
-        return rule.TargetType == ApplicationTargetType.Emulator
+        return rule.TargetType is ApplicationTargetType.Emulator or ApplicationTargetType.ChromeProfile
             ? $"pid={rule.ProcessId!.Value}"
             : rule.ExecutableName;
     }

@@ -50,6 +50,7 @@ internal static class Program
                     context.Configuration.GetSection("BackendApi").Bind(options);
                 });
                 services.Configure<ProxifierOptions>(context.Configuration.GetSection("Proxifier"));
+                services.Configure<ChromeBrowserOptions>(context.Configuration.GetSection("ChromeBrowser"));
 
                 services.AddSingleton<AppDataPaths>();
                 services.AddSingleton<ICredentialProtector, DpapiCredentialProtector>();
@@ -79,6 +80,14 @@ internal static class Program
                 services.AddSingleton<IProxifierSessionService, ProxifierSessionService>();
                 services.AddSingleton<IAppProcessScanner, AppProcessScanner>();
                 services.AddSingleton<IEmulatorProcessScanner, EmulatorProcessScanner>();
+                services.AddHttpClient(ChromeBrowserProvisioner.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan);
+                services.AddSingleton<IChromeBrowserProvisioner, ChromeBrowserProvisioner>();
+                services.AddSingleton<IChromeProfileProcessScanner, WmiChromeProfileProcessScanner>();
+                services.AddSingleton(provider => new ChromeProfileService(
+                    provider.GetRequiredService<IChromeProfileProcessScanner>(),
+                    provider.GetRequiredService<IChromeBrowserProvisioner>(),
+                    provider.GetRequiredService<AppDataPaths>().ChromeProfilesDirectory));
+                services.AddSingleton<ChromeNetworkServiceWatcher>();
                 services.AddSingleton<ILoggerSanitizer, LoggerSanitizer>();
                 services.AddSingleton<FileLogger>();
 
@@ -133,6 +142,8 @@ internal static class Program
                 services.AddTransient<ProxyOrdersControl>();
                 services.AddTransient<ProductPurchaseControl>();
                 services.AddTransient<ApplicationRulesControl>();
+                services.AddTransient<ChromeProfilesControl>();
+                services.AddTransient<ChromeProfileNameForm>();
                 services.AddTransient<StatusBarControl>();
                 services.AddTransient<MainForm>();
             })

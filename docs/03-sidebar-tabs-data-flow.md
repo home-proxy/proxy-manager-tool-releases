@@ -25,6 +25,14 @@ Các control cũng bắn event lên `MainForm` để **điều hướng chéo** 
 - **Dữ liệu**: đọc/ghi file JSON local qua `ApplicationRuleService` → `IApplicationRuleRepository` (`JsonApplicationRuleRepository`). Ngoài ra còn gọi `IApplicationRuntimeController`/`IAppProcessScanner` để biết app có đang chạy hay không, và gọi backend (`IProxyOrderApiClient`) để phát hiện proxy đã hết hạn/bị gỡ.
 - **Action chính**: thêm app/giả lập (`AddApplicationRuleForm`), sửa đường dẫn app thường (`ApplicationRuleEditorForm`), gán/đổi proxy (`ChangeApplicationProxyForm`), bật/tắt rule, start/stop app thường, tìm kiếm/lọc.
 - Chi tiết đầy đủ về flow thêm app + gán proxy: xem [04-application-proxy-assignment.md](04-application-proxy-assignment.md).
+- Tab này **không** hiển thị Chrome profile: nó chỉ đọc/ghi phần rule không phải Chrome (`GetApplicationRulesAsync`/`SaveApplicationRulesAsync`), nên "Xóa tất cả" ở đây không đụng tới Chrome profile.
+
+## 2b. Tab "Chrome Profile" — `ChromeProfilesControl`
+
+- **Hiển thị**: mỗi dòng là 1 Chrome profile riêng của tool (tên, proxy đang gắn, trạng thái Đang mở/Đã đóng/bị chặn mạng).
+- **Dữ liệu**: cùng file rule với tab "Ứng dụng" nhưng chỉ phần `TargetType = ChromeProfile` (`GetChromeProfilesAsync`/`SaveChromeProfilesAsync`); trạng thái đang mở lấy từ `ChromeProfileService.ScanAsync`.
+- **Action chính**: tạo/đổi tên (`ChromeProfileNameForm`), gắn/đổi proxy (`ChangeApplicationProxyForm`), mở/đóng, xoá (kèm dữ liệu). Nút "Mở" do `MainForm.OpenChromeProfileAsync` xử lý vì phải bật session proxy trước.
+- Chi tiết: [09-chrome-profiles.md](09-chrome-profiles.md).
 
 ## 3. Tab "Proxy Tĩnh" / "Proxy Datacenter" / "Proxy Xoay" — `ProxyOrdersControl`
 
