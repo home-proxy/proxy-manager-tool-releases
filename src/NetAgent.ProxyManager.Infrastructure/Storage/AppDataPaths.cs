@@ -20,6 +20,7 @@ public sealed class AppDataPaths
     public string UsersDirectory => Path.Combine(RootDirectory, "users");
     public string SecretsFilePath => Path.Combine(RootDirectory, "secrets.bin");
     public string LogFilePath => Path.Combine(LogsDirectory, "app.log");
+    public string ChromeProfilesDirectory => Path.Combine(RootDirectory, "chrome-profiles");
 
     public string GetUserDirectory(string userStorageKey) =>
         Path.Combine(UsersDirectory, userStorageKey);

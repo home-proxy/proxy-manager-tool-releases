@@ -71,6 +71,9 @@ public sealed class MainForm : Form
     private readonly IHostEnvironment _hostEnvironment;
     private readonly IServiceProvider _serviceProvider;
     private readonly AppDataPaths _paths;
+    private readonly ChromeProfileService _chromeProfileService;
+    private readonly IChromeBrowserProvisioner _chromeBrowserProvisioner;
+    private readonly ChromeNetworkServiceWatcher _chromeNetworkServiceWatcher;
     private readonly string _portalBaseUrl;
 
     private readonly Panel _contentPanel = new();
@@ -96,12 +99,14 @@ public sealed class MainForm : Form
     private ProxyOrdersControl _rotatingProxyOrdersControl = null!;
     private ProductPurchaseControl _purchaseControl = null!;
     private ProxyListControl _myProxyListControl = null!;
+    private ChromeProfilesControl _chromeProfilesControl = null!;
     private Button _purchaseSidebarButton = null!;
     private Button _staticProxySidebarButton = null!;
     private Button _datacenterProxySidebarButton = null!;
     private Button _rotatingProxySidebarButton = null!;
     private Button _myProxySidebarButton = null!;
     private Button _applicationsSidebarButton = null!;
+    private Button _chromeProfilesSidebarButton = null!;
     private Button? _selectedSidebarButton;
     private readonly AppTextInput _proxifierPathTextBox = new();
     private readonly AppTextInput _lastProfileTextBox = new();
@@ -142,6 +147,8 @@ public sealed class MainForm : Form
     private bool _hasStartableProxyRule;
     private bool _exitCleanupCompleted;
     private bool _exitCleanupRunning;
+    private bool _chromeRuntimeSyncRunning;
+    private bool _chromeRuntimeSyncPending;
     private readonly ProfileAutoReloadCoordinator _profileAutoReloadCoordinator;
 
     public MainForm(
@@ -185,6 +192,11 @@ public sealed class MainForm : Form
         _hostEnvironment = hostEnvironment;
         _serviceProvider = serviceProvider;
         _paths = paths;
+        _chromeProfileService = serviceProvider.GetRequiredService<ChromeProfileService>();
+        _chromeBrowserProvisioner = serviceProvider.GetRequiredService<IChromeBrowserProvisioner>();
+        _chromeNetworkServiceWatcher = serviceProvider.GetRequiredService<ChromeNetworkServiceWatcher>();
+        _chromeNetworkServiceWatcher.RuntimeChanged += HandleChromeRuntimeChanged;
+        Disposed += (_, _) => _chromeNetworkServiceWatcher.RuntimeChanged -= HandleChromeRuntimeChanged;
         _portalBaseUrl = NormalizePortalBaseUrl(backendApiOptions.Value.PortalBaseUrl);
         _profileAutoReloadCoordinator = new ProfileAutoReloadCoordinator(
             () => _runtimeState == ProxifierRuntimeState.Running,
@@ -221,6 +233,10 @@ public sealed class MainForm : Form
         _purchaseControl = _serviceProvider.GetRequiredService<ProductPurchaseControl>();
         _purchaseControl.Configure(ProxyProductKind.Static);
         _myProxyListControl = _serviceProvider.GetRequiredService<ProxyListControl>();
+        _chromeProfilesControl = _serviceProvider.GetRequiredService<ChromeProfilesControl>();
+        _chromeProfilesControl.LoginRequestedAsync = ShowLoginModalAsync;
+        _chromeProfilesControl.OpenProfileRequestedAsync = OpenChromeProfileAsync;
+        _chromeProfilesControl.ProfileAffectingChanged += HandleProfileAffectingChanged;
         _staticProxyOrdersControl.LoginRequestedAsync = ShowLoginModalAsync;
         _datacenterProxyOrdersControl.LoginRequestedAsync = ShowLoginModalAsync;
         _rotatingProxyOrdersControl.LoginRequestedAsync = ShowLoginModalAsync;
@@ -322,6 +338,13 @@ public sealed class MainForm : Form
             ShowView(_applicationRulesControl, button, "Ứng dụng");
         });
         _sidebarPanel.Controls.Add(_applicationsSidebarButton);
+
+        _chromeProfilesSidebarButton = CreateSidebarButton("Chrome Profile", "chrome-profile.svg", async button =>
+        {
+            ShowView(_chromeProfilesControl, button, "Chrome Profile");
+            await _chromeProfilesControl.LoadAsync();
+        });
+        _sidebarPanel.Controls.Add(_chromeProfilesSidebarButton);
 
         var applicationSeparator = CreateSidebarSeparator();
         RegisterExpandedOnlySidebarControl(applicationSeparator);
@@ -1843,6 +1866,7 @@ public sealed class MainForm : Form
 
         await RefreshAccountStateAsync();
         await _applicationRulesControl.LoadAsync();
+        await CloseUnprotectedChromeProfilesAsync();
         await RefreshStartEligibilityAsync();
         RefreshProxifierVisibilityButton(settings.ProxifierExecutablePath);
         await TryAutoInstallProxifierSilentlyAsync();
@@ -2154,6 +2178,8 @@ public sealed class MainForm : Form
             EmulatorInstanceName = rule.EmulatorInstanceName,
             RuntimeProcessName = rule.RuntimeProcessName,
             RuntimeExecutablePath = rule.RuntimeExecutablePath,
+            ChromeProfileName = rule.ChromeProfileName,
+            ChromeUserDataDirectory = rule.ChromeUserDataDirectory,
             AssignedProxyId = rule.AssignedProxyId,
             Warning = rule.Warning,
             IsEnabled = rule.IsEnabled,
@@ -2380,6 +2406,8 @@ public sealed class MainForm : Form
             return;
         }
 
+        await CloseChromeProfilesBeforeStopAsync(askUser: false);
+
         if (_runtimeState != ProxifierRuntimeState.Running)
         {
             return;
@@ -2445,7 +2473,8 @@ public sealed class MainForm : Form
             {
                 Proxies = proxies,
                 Rules = rules,
-                DefaultRouteDirect = settings.DefaultRouteDirect
+                DefaultRouteDirect = settings.DefaultRouteDirect,
+                BlockedExecutablePaths = _chromeBrowserProvisioner.GetInstalledExecutablePaths()
             });
 
             Directory.CreateDirectory(settings.ProfileOutputDirectory);
@@ -2483,7 +2512,7 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task StartProxySessionAsync()
+    private async Task<bool> StartProxySessionAsync(bool showSuccessFeedback = true)
     {
         try
         {
@@ -2491,13 +2520,13 @@ public sealed class MainForm : Form
             if (!_hasStartableProxyRule)
             {
                 UiFeedback.ShowInfo(this, "Chưa có ứng dụng nào đủ điều kiện để bắt đầu dùng proxy.");
-                return;
+                return false;
             }
 
             var settings = await EnsureProxifierReadyAsync(allowInstall: true);
             if (settings is null)
             {
-                return;
+                return false;
             }
 
             UpdateRuntimeState(ProxifierRuntimeState.Starting);
@@ -2513,7 +2542,7 @@ public sealed class MainForm : Form
             {
                 UpdateRuntimeState(ProxifierRuntimeState.Stopped);
                 UiFeedback.ShowInfo(this, "Chưa có ứng dụng nào đủ điều kiện để bắt đầu dùng proxy.");
-                return;
+                return false;
             }
 
             var result = await _proxifierSessionService.StartAsync(settings, proxies, applications, CancellationToken.None);
@@ -2526,12 +2555,18 @@ public sealed class MainForm : Form
             _statusBarControl.SetStatus(result.Success ? "Đang dùng proxy." : "Không thể bắt đầu dùng proxy.");
             await RunPostProfileLoadRestartFlowAsync(settings, applications, proxies, result.Success);
 
-            UiFeedback.ShowInfo(this, result.Success ? "Đã bắt đầu dùng proxy." : result.Message);
+            if (showSuccessFeedback || !result.Success)
+            {
+                UiFeedback.ShowInfo(this, result.Success ? "Đã bắt đầu dùng proxy." : result.Message);
+            }
+
+            return result.Success;
         }
         catch (Exception ex)
         {
             UpdateRuntimeState(ProxifierRuntimeState.Error);
             MessageBox.Show(this, ex.Message, "Không thể bắt đầu dùng proxy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
         }
     }
 
@@ -2686,6 +2721,11 @@ public sealed class MainForm : Form
     {
         try
         {
+            if (!await CloseChromeProfilesBeforeStopAsync(askUser: true))
+            {
+                return;
+            }
+
             var settings = await EnsureProxifierReadyAsync(allowInstall: true);
             if (settings is null)
             {
@@ -2744,6 +2784,7 @@ public sealed class MainForm : Form
                 ? $"Đã tự cập nhật profile Proxifier: {change.Reason}."
                 : "Tự cập nhật profile Proxifier thất bại.");
             await RunPostProfileLoadRestartFlowAsync(settings, applications, proxies, result.Success, change);
+            await RefreshVisibleChromeProfilesControlAsync();
 
             if (!result.Success)
             {
@@ -2757,9 +2798,228 @@ public sealed class MainForm : Form
         }
     }
 
+    // ---- Chrome Profile (docs/09-chrome-profiles.md) ----
+
+    // Opening order matters: the proxy session (and with it the leak-guard rule that blocks the tool
+    // Chrome by path) must be active before Chrome starts, so not a single request can go out direct.
+    private async Task<bool> OpenChromeProfileAsync(ApplicationRule rule, IProgress<ChromeBrowserDownloadProgress> progress)
+    {
+        try
+        {
+            var browserWasInstalled = _chromeBrowserProvisioner.IsInstalled;
+            await _chromeBrowserProvisioner.EnsureInstalledAsync(progress, CancellationToken.None);
+
+            if (_runtimeState == ProxifierRuntimeState.Running)
+            {
+                if (!browserWasInstalled)
+                {
+                    // The loaded profile predates the browser install and has no leak guard yet.
+                    await ReloadActiveProfileOnceAsync(ProfileAffectingChange.ForRules("Bật chặn rò rỉ cho Chrome Profile", [rule.Id]));
+                }
+            }
+            else if (!await StartProxySessionAsync(showSuccessFeedback: false))
+            {
+                return false;
+            }
+
+            if (_runtimeState != ProxifierRuntimeState.Running)
+            {
+                UiFeedback.ShowWarning(this, "Proxy chưa chạy nên chưa thể mở Chrome profile an toàn.", "Chưa thể mở");
+                return false;
+            }
+
+            _statusBarControl.SetStatus($"Đang mở Chrome profile \"{rule.GetApplicationName()}\"...");
+            await _chromeProfileService.LaunchAsync(rule, CancellationToken.None);
+            var profiles = (await _applicationRuleService.GetChromeProfilesAsync(CancellationToken.None)).ToList();
+            var stored = profiles.FirstOrDefault(item => item.Id == rule.Id);
+            if (stored is not null)
+            {
+                stored.ProcessId = rule.ProcessId;
+                await _applicationRuleService.SaveChromeProfilesAsync(profiles, CancellationToken.None);
+            }
+
+            await _profileAutoReloadCoordinator.RequestReloadAsync(
+                ProfileAffectingChange.ForRules("Mở Chrome profile", [rule.Id]),
+                CancellationToken.None);
+            _statusBarControl.SetStatus($"Đã mở Chrome profile \"{rule.GetApplicationName()}\".");
+            return true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _statusBarControl.SetStatus("Không thể mở Chrome profile.");
+            UiFeedback.ShowWarning(this, ex, "Không thể mở Chrome profile");
+            return false;
+        }
+    }
+
+    // Called on every runtime refresh: stores each open profile's NetworkService PID on its rule and
+    // (re)arms the watcher on exactly those PIDs.
+    private async Task RefreshChromeRuntimeTargetsAsync(IReadOnlyList<ApplicationRule> applications)
+    {
+        try
+        {
+            var runtimes = await _chromeProfileService.RefreshRuntimeTargetsAsync(applications, CancellationToken.None);
+            TrackChromeRuntimes(runtimes);
+        }
+        catch (Exception ex) when (ex is System.Management.ManagementException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _statusBarControl.SetStatus("Không quét được tiến trình Chrome profile.");
+        }
+    }
+
+    private void TrackChromeRuntimes(IReadOnlyList<ChromeProfileRuntimeInfo> runtimes)
+    {
+        _chromeNetworkServiceWatcher.Track(runtimes
+            .Where(runtime => runtime.NetworkServiceProcessId is > 0)
+            .Select(runtime => runtime.NetworkServiceProcessId!.Value));
+        if (runtimes.Any(runtime => runtime.NetworkServiceProcessId is null))
+        {
+            // Browser alive but NetworkService still respawning: look again shortly.
+            _chromeNetworkServiceWatcher.ScheduleRecheck(TimeSpan.FromMilliseconds(1500));
+        }
+    }
+
+    private void HandleChromeRuntimeChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        BeginInvoke(new Action(async () => await SyncChromeRuntimeAsync()));
+    }
+
+    private async Task SyncChromeRuntimeAsync()
+    {
+        if (_chromeRuntimeSyncRunning)
+        {
+            _chromeRuntimeSyncPending = true;
+            return;
+        }
+
+        _chromeRuntimeSyncRunning = true;
+        try
+        {
+            do
+            {
+                _chromeRuntimeSyncPending = false;
+                await SyncChromeRuntimeOnceAsync();
+            }
+            while (_chromeRuntimeSyncPending && !IsDisposed);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Runs from a background watcher tick: report, never let it take the app down.
+            _statusBarControl.SetStatus($"Không cập nhật được trạng thái Chrome profile: {ex.Message}");
+        }
+        finally
+        {
+            _chromeRuntimeSyncRunning = false;
+        }
+    }
+
+    private async Task SyncChromeRuntimeOnceAsync()
+    {
+        if (_runtimeState == ProxifierRuntimeState.Stopped)
+        {
+            // Proxifier is not running, so an open tool Chrome would go out with the real IP.
+            await CloseUnprotectedChromeProfilesAsync();
+            return;
+        }
+
+        var profiles = (await _applicationRuleService.GetChromeProfilesAsync(CancellationToken.None)).ToList();
+        var previous = profiles.ToDictionary(rule => rule.Id, rule => rule.ProcessId);
+        var runtimes = await _chromeProfileService.RefreshRuntimeTargetsAsync(profiles, CancellationToken.None);
+        TrackChromeRuntimes(runtimes);
+
+        var changedIds = profiles.Where(rule => previous[rule.Id] != rule.ProcessId).Select(rule => rule.Id).ToList();
+        if (changedIds.Count == 0)
+        {
+            return;
+        }
+
+        await _applicationRuleService.SaveChromeProfilesAsync(profiles, CancellationToken.None);
+        await _profileAutoReloadCoordinator.RequestReloadAsync(
+            ProfileAffectingChange.ForRules("Chrome profile đổi tiến trình mạng", changedIds),
+            CancellationToken.None);
+        await RefreshVisibleChromeProfilesControlAsync();
+    }
+
+    private async Task<bool> CloseChromeProfilesBeforeStopAsync(bool askUser)
+    {
+        IReadOnlyList<ChromeProfileRuntimeInfo> runtimes;
+        try
+        {
+            runtimes = await _chromeProfileService.ScanAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is System.Management.ManagementException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return true;
+        }
+
+        if (runtimes.Count == 0)
+        {
+            return true;
+        }
+
+        if (askUser)
+        {
+            var answer = MessageBox.Show(
+                this,
+                $"Đang có {runtimes.Count} Chrome profile mở. Dừng proxy sẽ đóng các Chrome profile này để tránh lộ IP thật. Tiếp tục?",
+                "Dừng proxy",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes)
+            {
+                return false;
+            }
+        }
+
+        _statusBarControl.SetStatus("Đang đóng Chrome profile...");
+        await _chromeProfileService.CloseAllAsync(CancellationToken.None);
+        _chromeNetworkServiceWatcher.Track([]);
+        await RefreshVisibleChromeProfilesControlAsync();
+        return true;
+    }
+
+    private async Task CloseUnprotectedChromeProfilesAsync()
+    {
+        if (_runtimeState != ProxifierRuntimeState.Stopped)
+        {
+            return;
+        }
+
+        try
+        {
+            var closedCount = await _chromeProfileService.CloseAllAsync(CancellationToken.None);
+            _chromeNetworkServiceWatcher.Track([]);
+            if (closedCount > 0)
+            {
+                await RefreshVisibleChromeProfilesControlAsync();
+                UiFeedback.ShowInfo(
+                    this,
+                    $"Đã đóng {closedCount} Chrome profile đang mở khi proxy chưa chạy, để tránh lộ IP thật. Hãy mở lại từ tab \"Chrome Profile\".");
+            }
+        }
+        catch (Exception ex) when (ex is System.Management.ManagementException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _statusBarControl.SetStatus("Không quét được tiến trình Chrome profile.");
+        }
+    }
+
+    private async Task RefreshVisibleChromeProfilesControlAsync()
+    {
+        if (_contentPanel.Controls.Contains(_chromeProfilesControl))
+        {
+            await _chromeProfilesControl.LoadAsync();
+        }
+    }
+
     private async Task RefreshEmulatorRuntimeTargetsAsync(IReadOnlyList<ApplicationRule> applications)
     {
         await _applicationRuleService.RefreshEmulatorRuntimeTargetsAsync(applications, CancellationToken.None);
+        await RefreshChromeRuntimeTargetsAsync(applications);
         await _applicationRuleRepository.SaveAllAsync(applications, CancellationToken.None);
         await _applicationRulesControl.LoadAsync();
     }

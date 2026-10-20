@@ -144,7 +144,7 @@ public sealed class ApplicationRulesControl : UserControl
 
     private async Task LoadGridOnlyAsync()
     {
-        _rules = (await _applicationRuleService.GetAllAsync(CancellationToken.None)).ToList();
+        _rules = (await _applicationRuleService.GetApplicationRulesAsync(CancellationToken.None)).ToList();
         _proxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None)).ToList();
         await RefreshRuntimeStatesAsync();
         BindGrid();
@@ -1971,7 +1971,7 @@ public sealed class ApplicationRulesControl : UserControl
         try
         {
             _statusLabel.Text = "Đang làm mới ứng dụng...";
-            _rules = (await _applicationRuleService.GetAllAsync(CancellationToken.None)).ToList();
+            _rules = (await _applicationRuleService.GetApplicationRulesAsync(CancellationToken.None)).ToList();
             _proxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None)).ToList();
 
             var beforeRefresh = _rules.ToDictionary(rule => rule.Id, RuntimeTargetSnapshot.From);
@@ -2555,7 +2555,7 @@ public sealed class ApplicationRulesControl : UserControl
             {
                 if (clearedMissingAssignmentCount > 0)
                 {
-                    await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+                    await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
                     OnProfileAffectingChanged(ProfileAffectingChange.Global("Bỏ gán proxy không còn tồn tại"));
                 }
 
@@ -2568,7 +2568,7 @@ public sealed class ApplicationRulesControl : UserControl
         var stateChanged = rule.IsEnabled != nextValue;
         rule.IsEnabled = nextValue;
         rule.Warning = null;
-        await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+        await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
         BindGrid();
         if (stateChanged || clearedMissingAssignmentCount > 0)
         {
@@ -2583,7 +2583,7 @@ public sealed class ApplicationRulesControl : UserControl
         if (rule is not null)
         {
             rule.Warning = message;
-            await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+            await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
         }
 
         _statusLabel.Text = message;
@@ -2615,7 +2615,7 @@ public sealed class ApplicationRulesControl : UserControl
         {
             if (clearedInvalidAssignmentCount > 0)
             {
-                await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+                await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
                 OnProfileAffectingChanged(ProfileAffectingChange.Global("Bỏ gán proxy không còn tồn tại"));
             }
 
@@ -2660,7 +2660,7 @@ public sealed class ApplicationRulesControl : UserControl
             return;
         }
 
-        await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+        await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
         BindGrid();
         OnProfileAffectingChanged(ProfileAffectingChange.Global(nextValue ? "Bật Dùng Proxy tất cả ứng dụng" : "Tắt Dùng Proxy tất cả ứng dụng"));
         if (skipped > 0)
@@ -2862,7 +2862,7 @@ public sealed class ApplicationRulesControl : UserControl
 
     private async Task SaveAsync()
     {
-        await _applicationRuleService.SaveAllAsync(_rules, CancellationToken.None);
+        await _applicationRuleService.SaveApplicationRulesAsync(_rules, CancellationToken.None);
         _proxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None)).ToList();
         await RefreshRuntimeStatesAsync();
         BindGrid();

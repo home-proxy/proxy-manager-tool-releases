@@ -14,6 +14,33 @@ public sealed class ApplicationRuleService(
     public Task SaveAllAsync(IReadOnlyCollection<ApplicationRule> rules, CancellationToken cancellationToken) =>
         repository.SaveAllAsync(rules, cancellationToken);
 
+    // The "Ứng dụng" and "Chrome Profile" tabs share one rule file but each only owns its own
+    // slice. Saving re-reads the file and keeps the other slice as it is on disk, so a tab holding
+    // a stale copy can never overwrite (or "delete all") the other tab's rules.
+    public async Task<IReadOnlyList<ApplicationRule>> GetApplicationRulesAsync(CancellationToken cancellationToken) =>
+        (await repository.GetAllAsync(cancellationToken)).Where(rule => !IsChromeProfile(rule)).ToList();
+
+    public Task SaveApplicationRulesAsync(IReadOnlyCollection<ApplicationRule> rules, CancellationToken cancellationToken) =>
+        SaveScopedAsync(rule => !IsChromeProfile(rule), rules, cancellationToken);
+
+    public async Task<IReadOnlyList<ApplicationRule>> GetChromeProfilesAsync(CancellationToken cancellationToken) =>
+        (await repository.GetAllAsync(cancellationToken)).Where(IsChromeProfile).ToList();
+
+    public Task SaveChromeProfilesAsync(IReadOnlyCollection<ApplicationRule> rules, CancellationToken cancellationToken) =>
+        SaveScopedAsync(IsChromeProfile, rules, cancellationToken);
+
+    private async Task SaveScopedAsync(
+        Func<ApplicationRule, bool> isOwnedByCaller,
+        IReadOnlyCollection<ApplicationRule> rules,
+        CancellationToken cancellationToken)
+    {
+        var otherRules = (await repository.GetAllAsync(cancellationToken)).Where(rule => !isOwnedByCaller(rule));
+        await repository.SaveAllAsync(otherRules.Concat(rules.Where(isOwnedByCaller)).ToList(), cancellationToken);
+    }
+
+    private static bool IsChromeProfile(ApplicationRule rule) =>
+        rule.TargetType == ApplicationTargetType.ChromeProfile;
+
     public int ClearMissingProxyAssignments(
         IReadOnlyList<ApplicationRule> rules,
         IReadOnlyCollection<ProxyServer> proxies)
@@ -108,6 +135,7 @@ public sealed class ApplicationRuleService(
             return !string.IsNullOrWhiteSpace(rule.ExecutableName);
         }
 
+        // Chrome profiles are always assigned explicitly from their own tab.
         return rule.TargetType == ApplicationTargetType.Emulator &&
             rule.ProcessId is > 0;
     }
