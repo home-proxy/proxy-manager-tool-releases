@@ -24,10 +24,12 @@ public sealed class ChangeApplicationProxyForm : Form
     private readonly Button _refreshOrdersButton;
     private readonly AppPrimaryButton _assignButton;
     private readonly AppButton _cancelButton;
-    private ProxyOrderKind _selectedOrderKind = ProxyOrderKind.Datacenter;
+    private ProxyOrderKind _selectedOrderKind = ProxyOrderKind.Static;
     private bool _contextLoaded;
+    private bool _viewReady;
     private bool _ordersLoaded;
     private bool _isBusy;
+    private int _ordersLoadVersion;
 
     public ChangeApplicationProxyForm(
         ProxyListControl manualProxyListControl,
@@ -99,14 +101,18 @@ public sealed class ChangeApplicationProxyForm : Form
 
     private async Task LoadContextAsync()
     {
-        await RunBusyAsync(async () =>
-        {
-            await _manualProxyListControl.LoadAsync();
-            if (IsOrdersTabSelected())
-            {
-                await LoadOrdersAsync(forceRefresh: false);
-            }
-        });
+        await RunBusyAsync(async () => await _manualProxyListControl.LoadAsync());
+        await LoadInitialOrdersAsync();
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        // The kind combo falls back to its first item when the handle is created. Apply the
+        // selection after that, then load, so the rows match the label on the first paint.
+        SelectOrderKind(_selectedOrderKind);
+        _viewReady = true;
+        _ = LoadInitialOrdersAsync();
     }
 
     private void BuildUi()
@@ -141,24 +147,24 @@ public sealed class ChangeApplicationProxyForm : Form
         _contentHost.BackColor = Color.White;
         BuildManualPage();
         BuildOrdersPage();
-        _contentHost.Controls.Add(_manualPage);
         _contentHost.Controls.Add(_ordersPage);
+        _contentHost.Controls.Add(_manualPage);
         content.Controls.Add(_contentHost, 0, 1);
 
         root.Controls.Add(content, 0, 0);
         root.Controls.Add(CreateFooter(), 0, 1);
         Controls.Add(root);
-        ShowManualPage();
+        ShowOrdersPage();
     }
 
     private Control BuildTopTabsRow()
     {
         _tabs.SetTabs(
         [
-            new AppUnderlineTab(ManualTabKey, "Proxy của tôi"),
-            new AppUnderlineTab(OrdersTabKey, "Đơn hàng của tôi")
+            new AppUnderlineTab(OrdersTabKey, "Đơn hàng của tôi"),
+            new AppUnderlineTab(ManualTabKey, "Proxy của tôi")
         ]);
-        _tabs.SelectedKey = ManualTabKey;
+        _tabs.SelectedKey = OrdersTabKey;
         _tabs.Dock = DockStyle.Fill;
 
         return _tabs;
@@ -197,7 +203,7 @@ public sealed class ChangeApplicationProxyForm : Form
         _orderKindCombo.DataSource = options;
         _orderKindCombo.DisplayMember = nameof(OrderKindOption.DisplayName);
         _orderKindCombo.ValueMember = nameof(OrderKindOption.Kind);
-        _orderKindCombo.SelectedItem = options.First(option => option.Kind == _selectedOrderKind);
+        SelectOrderKind(_selectedOrderKind);
         _orderKindCombo.SelectionChangeCommitted += async (_, _) =>
         {
             if (_orderKindCombo.SelectedItem is not OrderKindOption option)
@@ -205,8 +211,14 @@ public sealed class ChangeApplicationProxyForm : Form
                 return;
             }
 
+            if (option.Kind == _selectedOrderKind)
+            {
+                return;
+            }
+
             _selectedOrderKind = option.Kind;
             _ordersLoaded = false;
+            UpdateActionButtons();
             await LoadOrdersAsync(forceRefresh: false);
         };
 
@@ -302,17 +314,45 @@ public sealed class ChangeApplicationProxyForm : Form
         UpdateActionButtons();
     }
 
-    private async Task ShowOrdersPageAsync()
+    private void ShowOrdersPage()
     {
         _manualPage.Visible = false;
         _ordersPage.Visible = true;
         _ordersPage.BringToFront();
-        if (_contextLoaded && !_ordersLoaded)
+        UpdateActionButtons();
+    }
+
+    private async Task ShowOrdersPageAsync()
+    {
+        ShowOrdersPage();
+        await LoadInitialOrdersAsync();
+    }
+
+    private async Task LoadInitialOrdersAsync()
+    {
+        if (!_viewReady || !_contextLoaded || !IsOrdersTabSelected() || _ordersLoaded || _isBusy)
         {
-            await LoadOrdersAsync(forceRefresh: false);
+            return;
         }
 
-        UpdateActionButtons();
+        await LoadOrdersAsync(forceRefresh: false);
+    }
+
+    private void SelectOrderKind(ProxyOrderKind kind)
+    {
+        _selectedOrderKind = kind;
+        for (var index = 0; index < _orderKindCombo.Items.Count; index++)
+        {
+            if (_orderKindCombo.Items[index] is OrderKindOption option && option.Kind == kind)
+            {
+                if (_orderKindCombo.SelectedIndex != index)
+                {
+                    _orderKindCombo.SelectedIndex = index;
+                }
+
+                return;
+            }
+        }
     }
 
     private bool IsOrdersTabSelected() =>
@@ -320,11 +360,32 @@ public sealed class ChangeApplicationProxyForm : Form
 
     private async Task LoadOrdersAsync(bool forceRefresh)
     {
-        await RunBusyAsync(async () =>
+        var loadVersion = ++_ordersLoadVersion;
+        if (_orderKindCombo.SelectedItem is OrderKindOption selectedOption)
         {
-            await _orderProxyListControl.LoadPickerAsync(_selectedOrderKind, forceRefresh);
-            _ordersLoaded = true;
-        });
+            _selectedOrderKind = selectedOption.Kind;
+        }
+
+        var kind = _selectedOrderKind;
+        _isBusy = true;
+        _ordersLoaded = false;
+        UpdateActionButtons();
+        try
+        {
+            await _orderProxyListControl.LoadPickerAsync(kind, forceRefresh);
+            if (loadVersion == _ordersLoadVersion)
+            {
+                _ordersLoaded = true;
+            }
+        }
+        finally
+        {
+            if (loadVersion == _ordersLoadVersion)
+            {
+                _isBusy = false;
+                UpdateActionButtons();
+            }
+        }
     }
 
     private async Task RefreshOrdersAsync()
@@ -402,9 +463,9 @@ public sealed class ChangeApplicationProxyForm : Form
     private void UpdateActionButtons()
     {
         var hasSelection = IsOrdersTabSelected()
-            ? _orderProxyListControl.HasSelectedOrder
+            ? _ordersLoaded && !_isBusy && _orderProxyListControl.HasSelectedOrder
             : _manualProxyListControl.HasSelectedProxy;
-        _assignButton.Enabled = !_isBusy && hasSelection;
+        _assignButton.Enabled = hasSelection;
         _refreshOrdersButton.Enabled = !_isBusy;
         _orderKindCombo.Enabled = !_isBusy;
     }

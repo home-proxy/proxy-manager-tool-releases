@@ -335,6 +335,32 @@ public sealed class HomeProxyOrderApiClientTests
     }
 
     [Fact]
+    public async Task GetProxyOrdersAsync_ShouldSearchProxyHostWhenTheFullProxyLineIsEntered()
+    {
+        HttpRequestMessage? captured = null;
+        using var client = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            captured = request;
+            return JsonResponse("""{"data":[],"total":0,"hasNextPage":false}""");
+        }))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyOrderApiClient(client, Options.Create(new BackendApiOptions()), new StubAuthService());
+
+        await api.GetProxyOrdersAsync(new ProxyOrderPageRequest
+        {
+            CategoryTypeId = 1,
+            OrderKind = ProxyOrderKind.Datacenter,
+            SearchField = ProxyOrderSearchField.Proxy,
+            SearchText = "103.51.120.98:25809:user434690:proxy248161"
+        }, CancellationToken.None);
+
+        Uri.UnescapeDataString(captured!.RequestUri!.Query)
+            .Should().Contain("filter=proxy.ipIn:$eq:string:103.51.120.98;categorytype.id:$eq:number:1");
+    }
+
+    [Fact]
     public async Task ChangeProxyInfoAsync_ShouldSendBackendProtocolToken()
     {
         string? body = null;
@@ -795,6 +821,43 @@ public sealed class HomeProxyOrderApiClientTests
         requestedUrl.Should().Be("https://api.homeproxy.vn/api/v1/orders/merchant");
     }
 
+    [Fact]
+    public async Task PurchaseProxyAsync_ShouldThrowInsufficientCoinWhenTheWalletRejectsTheOrder()
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"statusCode":400,"message":"Bad Request","error":"Bad Request"}""")
+            }))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyOrderApiClient(client, Options.Create(new BackendApiOptions()), new StubAuthService());
+
+        var act = async () => await api.PurchaseProxyAsync(new ProxyPurchaseOrder(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InsufficientCoinException>();
+    }
+
+    [Fact]
+    public async Task PurchaseProxyAsync_ShouldReportTheServerMessageForOtherBadRequests()
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"statusCode":400,"message":"Product not found"}""")
+            }))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyOrderApiClient(client, Options.Create(new BackendApiOptions()), new StubAuthService());
+
+        var act = async () => await api.PurchaseProxyAsync(new ProxyPurchaseOrder(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>()
+            .WithMessage("Product not found");
+    }
+
     private static HttpResponseMessage JsonResponse(string json) =>
         new(HttpStatusCode.OK)
         {
@@ -817,6 +880,8 @@ public sealed class HomeProxyOrderApiClientTests
     /// HomeProxyOrderApiClient; every other member is unused by these tests.</summary>
     private sealed class StubAuthService(AuthSession? session = null) : IAuthService
     {
+        public event EventHandler? SessionCleared { add { } remove { } }
+
         public Task<AuthSession?> GetSessionAsync(CancellationToken cancellationToken) =>
             Task.FromResult(session);
 

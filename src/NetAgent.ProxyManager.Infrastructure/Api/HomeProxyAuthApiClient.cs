@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -230,8 +231,17 @@ public sealed class HomeProxyAuthApiClient(
         public DateTimeOffset? CreatedAt { get; init; }
         [JsonPropertyName("created_at")]
         public DateTimeOffset? CreatedAtSnakeCase { get; init; }
-        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
         public long? Coin { get; init; }
+        [JsonPropertyName("balance")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? Balance { get; init; }
+        [JsonPropertyName("wallet")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? Wallet { get; init; }
+        [JsonPropertyName("walletBalance")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? WalletBalance { get; init; }
         [JsonPropertyName("merchant")]
         public MerchantDto? Merchant { get; init; }
         [JsonPropertyName("roleId")]
@@ -250,7 +260,16 @@ public sealed class HomeProxyAuthApiClient(
                 LastName = LastName,
                 Gender = Gender,
                 CreatedAt = CreatedAt ?? CreatedAtSnakeCase,
-                Coin = Coin ?? Merchant?.Coin,
+                Coin = FirstCoin(
+                    Coin,
+                    Balance,
+                    Wallet,
+                    WalletBalance,
+                    Merchant?.Coin,
+                    Merchant?.Balance,
+                    Merchant?.Wallet,
+                    Merchant?.WalletBalance,
+                    Merchant?.Amount),
                 // Prefer the nested `role.id` (matches website's `user?.role?.id` check) and fall
                 // back to a flat `roleId` field in case a given endpoint only returns that shape.
                 RoleId = Role?.Id?.ToString() ?? RoleId
@@ -259,8 +278,124 @@ public sealed class HomeProxyAuthApiClient(
 
     private sealed class MerchantDto
     {
-        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
         public long? Coin { get; init; }
+        [JsonPropertyName("balance")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? Balance { get; init; }
+        [JsonPropertyName("wallet")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? Wallet { get; init; }
+        [JsonPropertyName("walletBalance")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? WalletBalance { get; init; }
+        [JsonPropertyName("amount")]
+        [JsonConverter(typeof(FlexibleInt64Converter))]
+        public long? Amount { get; init; }
+    }
+
+    private static long? FirstCoin(params long?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value is not null)
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private sealed class FlexibleInt64Converter : JsonConverter<long?>
+    {
+        public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.Number:
+                    if (reader.TryGetInt64(out var integer))
+                    {
+                        return integer;
+                    }
+
+                    return reader.TryGetDecimal(out var number)
+                        ? decimal.ToInt64(decimal.Truncate(number))
+                        : null;
+                case JsonTokenType.String:
+                    return ParseDecimalText(reader.GetString());
+                case JsonTokenType.StartObject:
+                    using (var document = JsonDocument.ParseValue(ref reader))
+                    {
+                        return ReadCoinObject(document.RootElement);
+                    }
+                case JsonTokenType.Null:
+                    return null;
+                default:
+                    reader.Skip();
+                    return null;
+            }
+        }
+
+        public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+        {
+            if (value is null)
+            {
+                writer.WriteNullValue();
+                return;
+            }
+
+            writer.WriteNumberValue(value.Value);
+        }
+
+        private static long? ReadCoinObject(JsonElement element)
+        {
+            foreach (var name in new[] { "coin", "balance", "walletBalance", "wallet", "amount" })
+            {
+                if (!element.TryGetProperty(name, out var property))
+                {
+                    continue;
+                }
+
+                if (property.ValueKind == JsonValueKind.Number)
+                {
+                    if (property.TryGetInt64(out var integer))
+                    {
+                        return integer;
+                    }
+
+                    if (property.TryGetDecimal(out var number))
+                    {
+                        return decimal.ToInt64(decimal.Truncate(number));
+                    }
+                }
+
+                if (property.ValueKind == JsonValueKind.String &&
+                    ParseDecimalText(property.GetString()) is { } parsed)
+                {
+                    return parsed;
+                }
+            }
+
+            return null;
+        }
+
+        private static long? ParseDecimalText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
+
+            if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer))
+            {
+                return integer;
+            }
+
+            return decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var number)
+                ? decimal.ToInt64(decimal.Truncate(number))
+                : null;
+        }
     }
 
     private sealed class RoleDto

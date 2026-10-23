@@ -6,6 +6,10 @@ public sealed class ProxifierProfileModel
     public required IReadOnlyList<ApplicationRule> Rules { get; init; }
     public bool DefaultRouteDirect { get; init; } = true;
 
+    // The tool itself must always reach the merchant API on the real network. A proxy rule that
+    // also matches ProxyManager would otherwise refuse api.homeproxy.vn while the user stays logged in.
+    public IReadOnlyList<string> DirectExecutablePaths { get; init; } = [];
+
     // Executables that must never reach the network directly (the tool-owned Chrome). Their
     // processes are routed only by the pid rules above; anything not matched — e.g. a Chrome
     // NetworkService that just restarted with a new PID — is blocked instead of leaking the real IP.

@@ -100,6 +100,53 @@ public sealed class HomeProxyAuthApiClientTests
     }
 
     [Fact]
+    public async Task GetMeAsync_ShouldReadWalletBalanceWhenCoinIsMissing()
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ =>
+            JsonResponse("""
+                {
+                  "id": "user_1",
+                  "firstName": "Phu",
+                  "lastName": "Loc",
+                  "merchant": {
+                    "balance": 25000.5
+                  }
+                }
+                """)))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyAuthApiClient(client, Options.Create(new BackendApiOptions()));
+
+        var user = await api.GetMeAsync("access", CancellationToken.None);
+
+        user.Coin.Should().Be(25000);
+        user.DisplayName.Should().Be("Phu Loc");
+    }
+
+    [Fact]
+    public async Task GetMeAsync_ShouldReadCoinObjectWithoutFailingTheProfile()
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ =>
+            JsonResponse("""
+                {
+                  "id": "user_1",
+                  "firstName": "Phu",
+                  "wallet": { "balance": "18000" }
+                }
+                """)))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyAuthApiClient(client, Options.Create(new BackendApiOptions()));
+
+        var user = await api.GetMeAsync("access", CancellationToken.None);
+
+        user.Coin.Should().Be(18000);
+        user.DisplayName.Should().Be("Phu");
+    }
+
+    [Fact]
     public async Task PatchMeAsync_ShouldSendBearerTokenAndUpdatePayload()
     {
         string? method = null;

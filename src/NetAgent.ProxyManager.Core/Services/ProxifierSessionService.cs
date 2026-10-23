@@ -19,7 +19,8 @@ public sealed class ProxifierSessionService(
             Proxies = proxies,
             Rules = applications,
             DefaultRouteDirect = settings.DefaultRouteDirect,
-            BlockedExecutablePaths = chromeBrowserProvisioner?.GetInstalledExecutablePaths() ?? []
+            BlockedExecutablePaths = chromeBrowserProvisioner?.GetInstalledExecutablePaths() ?? [],
+            DirectExecutablePaths = GetToolExecutablePaths()
         });
 
         var profilePath = await WriteProfileAsync(settings.ProfileOutputDirectory, "active.ppx", profile.Xml, cancellationToken);
@@ -48,7 +49,8 @@ public sealed class ProxifierSessionService(
         {
             Proxies = [],
             Rules = [],
-            DefaultRouteDirect = true
+            DefaultRouteDirect = true,
+            DirectExecutablePaths = GetToolExecutablePaths()
         });
 
         var profilePath = await WriteProfileAsync(settings.ProfileOutputDirectory, "inactive.ppx", profile.Xml, cancellationToken);
@@ -64,6 +66,12 @@ public sealed class ProxifierSessionService(
             CombineMessages(command, stopCommand),
             profilePath,
             profile);
+    }
+
+    private static IReadOnlyList<string> GetToolExecutablePaths()
+    {
+        var path = Environment.ProcessPath;
+        return string.IsNullOrWhiteSpace(path) ? [] : [path];
     }
 
     private static string CombineMessages(ProxifierCommandResult first, ProxifierCommandResult second) =>

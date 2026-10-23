@@ -2350,6 +2350,24 @@ public sealed class ApplicationRulesControl : UserControl
         }
     }
 
+    private async Task<string> ResolveAutoAssignAddressAsync(ProxyOrderKind kind, ProxyOrder order)
+    {
+        if (kind != ProxyOrderKind.RotateProxy)
+        {
+            return order.ProxyAddress;
+        }
+
+        try
+        {
+            var current = await _proxyOrderApiClient.RotateProxyAsync(order.UserProxyId, checkOnly: true, CancellationToken.None);
+            return RotateProxyAssignmentAddress.Resolve(kind, order.ProxyAddress, current.Proxy);
+        }
+        catch
+        {
+            return order.ProxyAddress;
+        }
+    }
+
     private async Task UpsertAutoAssignableBackendProxiesAsync()
     {
         var backendOrders = await FetchAutoAssignableBackendOrdersAsync();
@@ -2360,7 +2378,7 @@ public sealed class ApplicationRulesControl : UserControl
                 await _proxyManagementService.UpsertBackendOrderAsync(
                     order,
                     kind,
-                    order.ProxyAddress,
+                    await ResolveAutoAssignAddressAsync(kind, order),
                     CancellationToken.None);
             }
             catch (InvalidOperationException)

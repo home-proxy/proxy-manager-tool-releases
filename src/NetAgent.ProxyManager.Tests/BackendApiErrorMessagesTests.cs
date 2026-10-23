@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using FluentAssertions;
 using NetAgent.ProxyManager.Core.Services;
 
@@ -27,5 +28,18 @@ public sealed class BackendApiErrorMessagesTests
         var message = BackendApiErrorMessages.GetFriendlyMessage(exception);
 
         message.Should().Be("Backend failed.");
+    }
+
+    [Fact]
+    public void GetFriendlyMessage_ShouldExplainConnectionRefusedWithoutClearingTheSession()
+    {
+        var exception = new HttpRequestException(
+            "No connection could be made because the target machine actively refused it. (api.homeproxy.vn:443)",
+            new SocketException((int)SocketError.ConnectionRefused));
+
+        var message = BackendApiErrorMessages.GetFriendlyMessage(exception);
+
+        message.Should().Be(BackendApiErrorMessages.ConnectionFailedMessage);
+        BackendApiErrorMessages.IsConnectionFailure(exception).Should().BeTrue();
     }
 }

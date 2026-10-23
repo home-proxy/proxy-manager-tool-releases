@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using FluentAssertions;
 using NetAgent.ProxyManager.Core.Interfaces;
 using NetAgent.ProxyManager.Core.Models;
@@ -50,6 +51,24 @@ public sealed class ProxyOrderCacheServiceTests
         api.PageRequests[0].ProviderIn.Should().BeNull();
         api.PageRequests[1].ProviderIn.Should().Equal("US", "CMC");
         api.PageRequests[2].ProviderIn.Should().Equal("US", "CMC");
+    }
+
+    [Fact]
+    public async Task GetPageAsync_ShouldReturnLastPageWhenTheApiConnectionIsRefused()
+    {
+        var api = new CountingProxyOrderApiClient();
+        var service = new ProxyOrderCacheService(api);
+        var request = new ProxyOrderPageRequest { Page = 1, Limit = 20, CategoryTypeId = 1 };
+        await service.GetPageAsync(request, forceRefresh: false, CancellationToken.None);
+
+        api.Failure = new HttpRequestException(
+            "No connection could be made because the target machine actively refused it. (api.homeproxy.vn:443)",
+            new SocketException((int)SocketError.ConnectionRefused));
+
+        var cached = await service.GetPageAsync(request, forceRefresh: true, CancellationToken.None);
+
+        cached.Orders[0].Code.Should().Be("CALL1");
+        api.GetPageCallCount.Should().Be(3);
     }
 
     [Fact]
@@ -153,12 +172,18 @@ public sealed class ProxyOrderCacheServiceTests
         public int GetPageCallCount { get; private set; }
         public int GetProductsCallCount { get; private set; }
         public int GetDiscountRulesCallCount { get; private set; }
+        public Exception? Failure { get; set; }
         public List<ProxyOrderPageRequest> PageRequests { get; } = [];
 
         public Task<ProxyOrderPage> GetProxyOrdersAsync(ProxyOrderPageRequest request, CancellationToken cancellationToken)
         {
             GetPageCallCount++;
             PageRequests.Add(request);
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+
             return Task.FromResult(new ProxyOrderPage
             {
                 Orders = [CreateOrder(code: $"CALL{GetPageCallCount}")],

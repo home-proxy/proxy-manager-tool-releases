@@ -175,6 +175,8 @@ public sealed class JsonProxyRepositoryTests
             User = new AuthUser { Id = userId }
         };
 
+        public event EventHandler? SessionCleared { add { } remove { } }
+
         public Task<AuthSession?> GetSessionAsync(CancellationToken cancellationToken) =>
             Task.FromResult<AuthSession?>(_session);
 

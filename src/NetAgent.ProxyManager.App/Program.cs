@@ -97,25 +97,30 @@ internal static class Program
                 services.AddHttpClient<IAuthApiClient, HomeProxyAuthApiClient>((provider, client) =>
                 {
                     ConfigureBackendClient(provider, client);
-                }).AddHttpMessageHandler<MerchantHeaderHandler>();
+                })
+                    .ConfigureBackendTransport()
+                    .AddHttpMessageHandler<MerchantHeaderHandler>();
                 services.AddHttpClient<HttpProxyApiClient>((provider, client) =>
                 {
                     ConfigureBackendClient(provider, client);
                     // Never disable TLS certificate validation in production. In particular, do not use:
                     // ServerCertificateCustomValidationCallback = (_, _, _, _) => true
                 })
+                    .ConfigureBackendTransport()
                     .AddHttpMessageHandler<MerchantHeaderHandler>()
                     .AddHttpMessageHandler<BearerTokenHandler>();
                 services.AddHttpClient<IProxyOrderApiClient, HomeProxyOrderApiClient>((provider, client) =>
                 {
                     ConfigureBackendClient(provider, client);
                 })
+                    .ConfigureBackendTransport()
                     .AddHttpMessageHandler<MerchantHeaderHandler>()
                     .AddHttpMessageHandler<BearerTokenHandler>();
                 services.AddHttpClient<IDepositApiClient, HomeProxyDepositApiClient>((provider, client) =>
                 {
                     ConfigureBackendClient(provider, client);
                 })
+                    .ConfigureBackendTransport()
                     .AddHttpMessageHandler<MerchantHeaderHandler>()
                     .AddHttpMessageHandler<BearerTokenHandler>();
                 services.AddSingleton<IProxyApiClient>(provider =>
@@ -231,5 +236,21 @@ internal static class Program
         client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         client.DefaultRequestHeaders.TryAddWithoutValidation("accept", "application/json");
     }
+
+}
+
+file static class BackendHttpClientBuilderExtensions
+{
+    public static IHttpClientBuilder ConfigureBackendTransport(this IHttpClientBuilder builder) =>
+        builder
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                // A system or env proxy that is down refuses the TCP connection, and HttpClient
+                // reports that refusal against api.homeproxy.vn. The tool must reach the API directly.
+                UseProxy = false,
+                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+                ConnectTimeout = TimeSpan.FromSeconds(10)
+            })
+            .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
 }

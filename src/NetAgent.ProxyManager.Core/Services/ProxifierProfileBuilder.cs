@@ -73,6 +73,10 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
                 new XElement("ChainList"),
                 new XElement("RuleList",
                     CreateLocalhostRule(),
+                    model.DirectExecutablePaths
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Select(CreateDirectExecutableRule),
                     enabledRules.Select(rule =>
                     {
                         var assignedProxyId = proxyIdMap[rule.AssignedProxyId!.Value];
@@ -154,6 +158,15 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
 
     // Must sit after every per-application rule (Proxifier stops at the first match) and before
     // "Default", so it only catches processes of this executable that no pid rule claimed.
+    private static XElement CreateDirectExecutableRule(string executablePath)
+    {
+        return new XElement("Rule",
+            new XAttribute("enabled", "true"),
+            new XElement("Action", new XAttribute("type", "Direct")),
+            new XElement("Applications", FormatApplicationValue(executablePath)),
+            new XElement("Name", "ProxyManager"));
+    }
+
     private static XElement CreateBlockedExecutableRule(string executablePath)
     {
         return new XElement("Rule",

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -126,8 +127,124 @@ public sealed class HomeProxyOrderApiClient(
         };
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = response.Content is null
+            ? string.Empty
+            : await response.Content.ReadAsStringAsync(cancellationToken);
+        var message = ReadErrorMessage(body);
+        if (IsInsufficientCoin(response.StatusCode, message, body))
+        {
+            throw new InsufficientCoinException(message);
+        }
+
+        throw new HttpRequestException(
+            string.IsNullOrWhiteSpace(message)
+                ? $"ProxyManager order request failed with status code {(int)response.StatusCode}."
+                : message,
+            null,
+            response.StatusCode);
     }
+
+    private static bool IsInsufficientCoin(HttpStatusCode status, string? message, string body)
+    {
+        if (status is not (HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity or HttpStatusCode.PaymentRequired))
+        {
+            return false;
+        }
+
+        var text = $"{message}\n{body}";
+        if (ContainsAny(text, InsufficientCoinMarkers))
+        {
+            return true;
+        }
+
+        if (ContainsAny(text, OtherPurchaseErrorMarkers))
+        {
+            return false;
+        }
+
+        return status is HttpStatusCode.BadRequest or HttpStatusCode.PaymentRequired &&
+            IsGenericBadRequest(message);
+    }
+
+    private static bool IsGenericBadRequest(string? message) =>
+        string.IsNullOrWhiteSpace(message) ||
+        message.Equals("Bad Request", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("status code 400", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsAny(string text, string[] markers)
+    {
+        foreach (var marker in markers)
+        {
+            if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? ReadErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("message", out var message))
+            {
+                return null;
+            }
+
+            return message.ValueKind switch
+            {
+                JsonValueKind.String => message.GetString(),
+                JsonValueKind.Array => string.Join(
+                    " ",
+                    message.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String
+                        ? item.GetString()
+                        : item.ToString())),
+                _ => message.ToString()
+            };
+        }
+        catch (JsonException)
+        {
+            return body.Trim();
+        }
+    }
+
+    private static readonly string[] InsufficientCoinMarkers =
+    [
+        "coin",
+        "balance",
+        "wallet",
+        "số dư",
+        "so du",
+        "không đủ",
+        "khong du",
+        "not enough",
+        "notenough",
+        "insufficient"
+    ];
+
+    private static readonly string[] OtherPurchaseErrorMarkers =
+    [
+        "out of stock",
+        "hết hàng",
+        "het hang",
+        "not found",
+        "không tồn tại",
+        "invalid",
+        "không hợp lệ"
+    ];
 
     public async Task ChangeProxyInfoAsync(
         IReadOnlyCollection<int> userProxyIds,
@@ -335,8 +452,11 @@ public sealed class HomeProxyOrderApiClient(
         if (searchField is not null && !string.IsNullOrWhiteSpace(searchText))
         {
             var field = ResolveSearchField(request, searchField.Value);
-
-            filters.Add($"{field}:$eq:string:{searchText.Trim()}");
+            var value = NormalizeSearchText(searchField.Value, searchText);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                filters.Add($"{field}:$eq:string:{value}");
+            }
         }
 
         if (request.IsCdk is not null)
@@ -390,6 +510,19 @@ public sealed class HomeProxyOrderApiClient(
 
     private static string SanitizeFilterValue(string? value) =>
         (value ?? string.Empty).Replace(';', ' ');
+
+    private static string NormalizeSearchText(ProxyOrderSearchField field, string text)
+    {
+        var value = SanitizeFilterValue(text).Trim();
+        if (field is not (ProxyOrderSearchField.Proxy or ProxyOrderSearchField.ProxyDomain))
+        {
+            return value;
+        }
+
+        var host = value.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(host) ? value : host;
+    }
 
     private static string ResolveSearchField(ProxyOrderPageRequest request, ProxyOrderSearchField searchField) =>
         searchField switch

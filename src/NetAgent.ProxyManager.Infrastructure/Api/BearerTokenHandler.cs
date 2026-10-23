@@ -43,7 +43,6 @@ public sealed class BearerTokenHandler(IAuthService authService) : DelegatingHan
         if (!isExpiredAccessToken)
         {
             retryRequest.Dispose();
-            await authService.ClearAsync(cancellationToken);
             return response;
         }
 
@@ -52,7 +51,6 @@ public sealed class BearerTokenHandler(IAuthService authService) : DelegatingHan
         if (refreshed is null)
         {
             retryRequest.Dispose();
-            await authService.ClearAsync(cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.Unauthorized)
             {
                 RequestMessage = request
@@ -85,9 +83,13 @@ public sealed class BearerTokenHandler(IAuthService authService) : DelegatingHan
 
             return await authService.RefreshAsync(cancellationToken);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await authService.ClearAsync(cancellationToken);
+            if (IsAuthenticationRejected(ex))
+            {
+                await authService.ClearAsync(cancellationToken);
+            }
+
             return null;
         }
         finally
@@ -95,6 +97,10 @@ public sealed class BearerTokenHandler(IAuthService authService) : DelegatingHan
             RefreshLock.Release();
         }
     }
+
+    private static bool IsAuthenticationRejected(Exception exception) =>
+        exception is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } ||
+        exception is AuthApiException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden };
 
     private static bool IsAuthEndpoint(HttpRequestMessage request)
     {

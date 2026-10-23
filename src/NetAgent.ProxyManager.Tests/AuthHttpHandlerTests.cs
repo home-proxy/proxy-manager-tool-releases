@@ -145,6 +145,32 @@ public sealed class AuthHttpHandlerTests
         auth.Session.Should().BeNull();
     }
 
+    [Fact]
+    public async Task BearerTokenHandler_ShouldKeepSessionWhenRefreshFailsTransiently()
+    {
+        var auth = new FakeAuthService(new AuthSession
+        {
+            AccessToken = "old_access",
+            RefreshToken = "old_refresh",
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30)
+        })
+        {
+            RefreshShouldFail = true,
+            RefreshFailureIsTransient = true
+        };
+        var handler = new BearerTokenHandler(auth)
+        {
+            InnerHandler = new StubHttpMessageHandler(_ => ExpiredAccessTokenResponse())
+        };
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+
+        using var response = await client.GetAsync("v1/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        auth.ClearCalls.Should().Be(0);
+        auth.Session.Should().NotBeNull();
+    }
+
     private static HttpResponseMessage ExpiredAccessTokenResponse() =>
         new(HttpStatusCode.Unauthorized)
         {
@@ -164,6 +190,8 @@ public sealed class AuthHttpHandlerTests
         public int RefreshCalls { get; private set; }
         public int ClearCalls { get; private set; }
         public bool RefreshShouldFail { get; init; }
+        public bool RefreshFailureIsTransient { get; init; }
+        public event EventHandler? SessionCleared { add { } remove { } }
 
         public Task<AuthSession?> GetSessionAsync(CancellationToken cancellationToken) =>
             Task.FromResult(Session);
@@ -185,7 +213,9 @@ public sealed class AuthHttpHandlerTests
             RefreshCalls++;
             if (RefreshShouldFail)
             {
-                throw new InvalidOperationException("refresh failed");
+                throw RefreshFailureIsTransient
+                    ? new HttpRequestException("offline")
+                    : new HttpRequestException("refresh rejected", null, HttpStatusCode.Unauthorized);
             }
 
             Session = new AuthSession

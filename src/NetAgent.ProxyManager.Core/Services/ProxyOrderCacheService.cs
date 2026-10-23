@@ -5,8 +5,11 @@ namespace NetAgent.ProxyManager.Core.Services;
 
 public sealed class ProxyOrderCacheService(IProxyOrderApiClient proxyOrderApiClient) : IProxyOrderCacheService
 {
+    private static readonly TimeSpan ConnectionRetryDelay = TimeSpan.FromMilliseconds(300);
+
     private readonly object _gate = new();
     private readonly Dictionary<int, ProxyProductPage> _productPages = [];
+    private readonly Dictionary<string, ProxyOrderPage> _orderPages = new(StringComparer.Ordinal);
     private readonly Dictionary<int, ProxyOrderCheckState> _checksByUserProxyId = [];
     private readonly Dictionary<EndpointCacheKey, ProxyOrderCheckState> _checksByEndpoint = [];
     private ProxyDiscountRules? _discountRules;
@@ -16,8 +19,70 @@ public sealed class ProxyOrderCacheService(IProxyOrderApiClient proxyOrderApiCli
         bool forceRefresh,
         CancellationToken cancellationToken)
     {
-        var fresh = await proxyOrderApiClient.GetProxyOrdersAsync(request, cancellationToken);
-        return ClonePage(fresh);
+        try
+        {
+            return await FetchPageAsync(request, cancellationToken);
+        }
+        catch (Exception exception) when (BackendApiErrorMessages.IsConnectionFailure(exception))
+        {
+            try
+            {
+                await Task.Delay(ConnectionRetryDelay, cancellationToken);
+                return await FetchPageAsync(request, cancellationToken);
+            }
+            catch (Exception retryException) when (BackendApiErrorMessages.IsConnectionFailure(retryException))
+            {
+                if (TryGetCachedPage(request, out var cached))
+                {
+                    return cached;
+                }
+
+                throw;
+            }
+        }
+    }
+
+    private async Task<ProxyOrderPage> FetchPageAsync(
+        ProxyOrderPageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var fresh = ClonePage(await proxyOrderApiClient.GetProxyOrdersAsync(request, cancellationToken));
+        lock (_gate)
+        {
+            _orderPages[BuildPageKey(request)] = ClonePage(fresh);
+        }
+
+        return fresh;
+    }
+
+    private bool TryGetCachedPage(ProxyOrderPageRequest request, out ProxyOrderPage page)
+    {
+        lock (_gate)
+        {
+            if (_orderPages.TryGetValue(BuildPageKey(request), out var cached))
+            {
+                page = ClonePage(cached);
+                return true;
+            }
+        }
+
+        page = new ProxyOrderPage();
+        return false;
+    }
+
+    private static string BuildPageKey(ProxyOrderPageRequest request)
+    {
+        var providers = request.ProviderIn is null ? string.Empty : string.Join(',', request.ProviderIn);
+        return string.Join(
+            '|',
+            request.Page,
+            request.Limit,
+            request.CategoryTypeId,
+            request.IsCdk,
+            request.OrderKind,
+            providers,
+            request.SearchField,
+            request.SearchText?.Trim());
     }
 
     public async Task<ProxyProductPage> GetProductsAsync(
@@ -92,6 +157,7 @@ public sealed class ProxyOrderCacheService(IProxyOrderApiClient proxyOrderApiCli
         lock (_gate)
         {
             _productPages.Clear();
+            _orderPages.Clear();
             _discountRules = null;
             _checksByUserProxyId.Clear();
             _checksByEndpoint.Clear();

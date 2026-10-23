@@ -4,6 +4,8 @@ namespace NetAgent.ProxyManager.Core.Interfaces;
 
 public interface IAuthService
 {
+    event EventHandler? SessionCleared;
+
     Task<AuthSession?> GetSessionAsync(CancellationToken cancellationToken);
     Task<AuthSession> LoginAsync(string phone, string password, CancellationToken cancellationToken);
     Task<AuthSession> LoginAsync(string phone, string password, bool rememberSession, CancellationToken cancellationToken);

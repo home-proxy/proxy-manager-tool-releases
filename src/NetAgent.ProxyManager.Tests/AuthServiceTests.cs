@@ -266,6 +266,84 @@ public sealed class AuthServiceTests
         api.LastLoginPassword.Should().Be("new-password");
     }
 
+    [Fact]
+    public async Task EnsureValidSessionAsync_ShouldKeepSessionWhenMeFailsTransiently()
+    {
+        var api = new FakeAuthApiClient
+        {
+            GetMeException = new HttpRequestException("offline")
+        };
+        var store = new InMemorySecretStore
+        {
+            Session = new AuthSession
+            {
+                AccessToken = "access",
+                RefreshToken = "refresh",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30)
+            }
+        };
+        var service = new AuthService(store, api);
+
+        var result = await service.EnsureValidSessionAsync(CancellationToken.None);
+
+        result.Should().BeTrue();
+        store.Session.Should().NotBeNull();
+        store.Session!.AccessToken.Should().Be("access");
+    }
+
+    [Fact]
+    public async Task EnsureValidSessionAsync_ShouldClearSessionWhenMeIsUnauthorized()
+    {
+        var api = new FakeAuthApiClient
+        {
+            GetMeException = new HttpRequestException("unauthorized", null, System.Net.HttpStatusCode.Unauthorized)
+        };
+        var store = new InMemorySecretStore
+        {
+            Session = new AuthSession
+            {
+                AccessToken = "access",
+                RefreshToken = "refresh",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30)
+            }
+        };
+        var service = new AuthService(store, api);
+        var cleared = 0;
+        service.SessionCleared += (_, _) => cleared++;
+
+        var result = await service.EnsureValidSessionAsync(CancellationToken.None);
+
+        result.Should().BeFalse();
+        store.Session.Should().BeNull();
+        cleared.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EnsureValidSessionAsync_ShouldRefreshOnceWhenCalledConcurrently()
+    {
+        var api = new FakeAuthApiClient
+        {
+            RefreshDelay = TimeSpan.FromMilliseconds(40)
+        };
+        var store = new InMemorySecretStore
+        {
+            Session = new AuthSession
+            {
+                AccessToken = "old_access",
+                RefreshToken = "old_refresh",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+            }
+        };
+        var service = new AuthService(store, api);
+
+        var results = await Task.WhenAll(
+            service.EnsureValidSessionAsync(CancellationToken.None),
+            service.EnsureValidSessionAsync(CancellationToken.None));
+
+        results.Should().OnlyContain(result => result);
+        api.RefreshCalls.Should().Be(1);
+        store.Session!.AccessToken.Should().Be("access_2");
+    }
 
     [Fact]
     public async Task ChangePasswordAsync_ShouldClearSessionWhenReloginFails()
@@ -332,6 +410,8 @@ public sealed class AuthServiceTests
         public AuthUpdateRequest? PatchMeRequest { get; private set; }
         public AuthUser CurrentUser { get; init; } = new() { Id = "user_1", Phone = "+84862285763" };
         public bool LoginShouldFail { get; init; }
+        public Exception? GetMeException { get; init; }
+        public TimeSpan RefreshDelay { get; init; }
 
         public Task<AuthSession> LoginAsync(string phone, string password, CancellationToken cancellationToken)
         {
@@ -358,21 +438,31 @@ public sealed class AuthServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<AuthSession> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
+        public async Task<AuthSession> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
         {
             RefreshCalls++;
             RefreshTokenReceived = refreshToken;
-            return Task.FromResult(new AuthSession
+            if (RefreshDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(RefreshDelay, cancellationToken);
+            }
+
+            return new AuthSession
             {
                 AccessToken = "access_2",
                 RefreshToken = "refresh_2",
                 AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(45)
-            });
+            };
         }
 
         public Task<AuthUser> GetMeAsync(string accessToken, CancellationToken cancellationToken)
         {
             GetMeTokenReceived = accessToken;
+            if (GetMeException is not null)
+            {
+                throw GetMeException;
+            }
+
             return Task.FromResult(CurrentUser);
         }
 

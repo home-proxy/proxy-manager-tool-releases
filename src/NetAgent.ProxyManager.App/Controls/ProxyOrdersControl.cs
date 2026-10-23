@@ -111,12 +111,14 @@ public sealed class ProxyOrdersControl : UserControl
     private bool _isSettingSearch;
     private bool _pickerMode;
     private int _bindVersion;
+    private int _fetchVersion;
     private string _currentGridToolTipText = string.Empty;
     private RowAction? _currentGridToolTipAction;
     private Rectangle _currentGridToolTipBounds = Rectangle.Empty;
     private (int RowIndex, bool NewValue)? _pendingCheckboxToggle;
     private (int RowIndex, int ColumnIndex)? _pendingComboOpenCell;
     private string _gridEmptyStateText = string.Empty;
+    private string? _ordersLoadError;
 
     public ProxyOrdersControl(
         IProxyOrderApiClient proxyOrderApiClient,
@@ -201,6 +203,7 @@ public sealed class ProxyOrdersControl : UserControl
         _grid.MultiSelect = false;
         _grid.ReadOnly = true;
         _grid.AllowUserToResizeRows = false;
+        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _rowContextMenu.Enabled = false;
         ApplyModeConfiguration();
         UpdateSelectionDependentActions();
@@ -228,10 +231,10 @@ public sealed class ProxyOrdersControl : UserControl
         }
 
         var address = order.ProxyAddress;
-        if (_kind == ProxyOrderKind.RotateProxy && string.IsNullOrWhiteSpace(address))
+        if (_kind == ProxyOrderKind.RotateProxy)
         {
             var current = await _proxyOrderApiClient.RotateProxyAsync(order.UserProxyId, checkOnly: true, CancellationToken.None);
-            address = current.Proxy;
+            address = RotateProxyAssignmentAddress.Resolve(_kind, order.ProxyAddress, current.Proxy);
         }
 
         return string.IsNullOrWhiteSpace(address)
@@ -320,11 +323,15 @@ public sealed class ProxyOrdersControl : UserControl
         _searchFieldCombo.SelectedIndexChanged += async (_, _) =>
         {
             UpdateSearchPlaceholder();
-            if (_isSettingSearch)
+            if (_isSettingSearch || _pickerMode)
             {
                 return;
             }
 
+            _isSettingSearch = true;
+            _searchTextBox.Text = string.Empty;
+            _searchDebounceTimer.Stop();
+            _isSettingSearch = false;
             await ResetAndFetchAsync();
         };
 
@@ -342,6 +349,11 @@ public sealed class ProxyOrdersControl : UserControl
         _searchDebounceTimer.Tick += async (_, _) =>
         {
             _searchDebounceTimer.Stop();
+            if (_pickerMode)
+            {
+                return;
+            }
+
             await ResetAndFetchAsync();
         };
 
@@ -555,7 +567,9 @@ public sealed class ProxyOrdersControl : UserControl
         _grid.MultiSelect = true;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.AutoGenerateColumns = false;
-        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _grid.AllowUserToResizeColumns = true;
+        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _grid.ScrollBars = ScrollBars.Both;
         _grid.EditMode = DataGridViewEditMode.EditProgrammatically;
         _grid.CurrentCellDirtyStateChanged += (_, _) =>
         {
@@ -601,7 +615,7 @@ public sealed class ProxyOrdersControl : UserControl
             FillWeight = 4,
             ReadOnly = true
         });
-        _grid.Columns.Add(CreateTextColumn("Mã đơn hàng", nameof(ProxyOrderRow.OrderCode), 120, 10, true));
+        _grid.Columns.Add(CreateTextColumn("Mã đơn hàng", nameof(ProxyOrderRow.OrderCode), 168, 12, true));
         _grid.Columns.Add(CreateTextColumn("Proxy", nameof(ProxyOrderRow.DisplayProxy), 230, 18, true));
         _grid.Columns.Add(CreateTextColumn("Username", nameof(ProxyOrderRow.Username), 120, 10));
         _grid.Columns.Add(CreateTextColumn("Password", nameof(ProxyOrderRow.Password), 120, 10));
@@ -611,8 +625,10 @@ public sealed class ProxyOrdersControl : UserControl
             Name = nameof(ProxyOrderRow.Protocol),
             HeaderText = "Giao thức",
             DataPropertyName = nameof(ProxyOrderRow.Protocol),
-            MinimumWidth = 105,
+            MinimumWidth = 72,
+            Width = 105,
             FillWeight = 8,
+            Resizable = DataGridViewTriState.True,
             DataSource = ProxyProtocolDisplay.Options.ToList(),
             DisplayMember = nameof(ProxyProtocolOption.DisplayName),
             ValueMember = nameof(ProxyProtocolOption.Value),
@@ -846,7 +862,6 @@ public sealed class ProxyOrdersControl : UserControl
             {
                 SelectionColumnName,
                 nameof(ProxyOrderRow.Code),
-                nameof(ProxyOrderRow.UserProxyId),
                 nameof(ProxyOrderRow.OrderCode),
                 nameof(ProxyOrderRow.DisplayProxy),
                 nameof(ProxyOrderRow.Username),
@@ -856,7 +871,9 @@ public sealed class ProxyOrdersControl : UserControl
                 nameof(ProxyOrderRow.Status),
                 nameof(ProxyOrderRow.LatencyMs),
                 nameof(ProxyOrderRow.ApplicationCount),
+                nameof(ProxyOrderRow.UserProxyId),
                 nameof(ProxyOrderRow.Provider),
+                nameof(ProxyOrderRow.Protocol),
                 nameof(ProxyOrderRow.PreviousIp),
                 nameof(ProxyOrderRow.DisplayProxyDomain),
                 nameof(ProxyOrderRow.Note),
@@ -867,6 +884,7 @@ public sealed class ProxyOrdersControl : UserControl
                 SelectionColumnName,
                 nameof(ProxyOrderRow.OrderCode),
                 nameof(ProxyOrderRow.DisplayProxy),
+                nameof(ProxyOrderRow.DisplayProxyDomain),
                 nameof(ProxyOrderRow.Username),
                 nameof(ProxyOrderRow.Password),
                 nameof(ProxyOrderRow.Provider),
@@ -875,17 +893,17 @@ public sealed class ProxyOrdersControl : UserControl
                 nameof(ProxyOrderRow.Status),
                 nameof(ProxyOrderRow.LatencyMs),
                 nameof(ProxyOrderRow.ApplicationCount),
+                nameof(ProxyOrderRow.PreviousIp),
                 nameof(ProxyOrderRow.Code),
                 nameof(ProxyOrderRow.UserProxyId),
-                nameof(ProxyOrderRow.PreviousIp),
-                nameof(ProxyOrderRow.DisplayProxyDomain),
+                nameof(ProxyOrderRow.ProtocolDisplay),
                 nameof(ProxyOrderRow.Note),
                 ActionsColumnName
             };
 
         for (var index = 0; index < order.Length; index++)
         {
-            if (_grid.Columns[order[index]] is { } column)
+            if (_grid.Columns[order[index]] is { } column && column.DisplayIndex != index)
             {
                 column.DisplayIndex = index;
             }
@@ -978,8 +996,10 @@ public sealed class ProxyOrdersControl : UserControl
             Name = propertyName,
             HeaderText = header,
             DataPropertyName = propertyName,
-            MinimumWidth = minimumWidth,
+            MinimumWidth = 64,
+            Width = minimumWidth,
             FillWeight = fillWeight,
+            Resizable = DataGridViewTriState.True,
             ReadOnly = readOnly,
             Visible = visible
         };
@@ -1055,19 +1075,36 @@ public sealed class ProxyOrdersControl : UserControl
 
     private async Task FetchPageAsync(bool forceRefresh = false)
     {
+        var fetchVersion = ++_fetchVersion;
         try
         {
             if (!await EnsureAuthenticatedForProxyOrdersAsync())
             {
+                if (fetchVersion != _fetchVersion)
+                {
+                    return;
+                }
+
                 ShowLoginRequiredState();
                 return;
             }
 
+            if (fetchVersion != _fetchVersion)
+            {
+                return;
+            }
+
             _requiresLogin = false;
+            _ordersLoadError = null;
             UpdateFooterVisibility();
             _statusLabel.Text = "Đang tải đơn hàng proxy...";
             SetToolbarEnabled(false);
             var page = await _proxyOrderCacheService.GetPageAsync(BuildPageRequest(), forceRefresh, CancellationToken.None);
+            if (fetchVersion != _fetchVersion)
+            {
+                return;
+            }
+
             _total = page.Total;
             _hasNextPage = page.HasNextPage;
             _orders = page.Orders
@@ -1085,38 +1122,92 @@ public sealed class ProxyOrdersControl : UserControl
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await _authService.ClearAsync(CancellationToken.None);
-            ShowLoginRequiredState();
+            if (fetchVersion != _fetchVersion)
+            {
+                return;
+            }
+
+            if (await _authService.GetSessionAsync(CancellationToken.None) is null)
+            {
+                ShowLoginRequiredState();
+                return;
+            }
+
+            ShowOrdersLoadError(ex);
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = "Không thể tải đơn hàng proxy.";
-            UpdateEmptyState();
-            UiFeedback.ShowWarning(this, ex, "Không thể tải đơn hàng proxy");
+            if (fetchVersion != _fetchVersion)
+            {
+                return;
+            }
+
+            ShowOrdersLoadError(ex);
         }
         finally
         {
-            SetToolbarEnabled(!_requiresLogin);
-            UpdatePager();
+            if (fetchVersion == _fetchVersion)
+            {
+                SetToolbarEnabled(!_requiresLogin);
+                UpdatePager();
+            }
         }
+    }
+
+    public bool RequiresLogin => _requiresLogin;
+
+    public void ShowLoggedOutState()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(ShowLoggedOutState);
+            return;
+        }
+
+        ShowLoginRequiredState();
     }
 
     private async Task<bool> EnsureAuthenticatedForProxyOrdersAsync()
     {
         try
         {
-            return await _authService.EnsureValidSessionAsync(CancellationToken.None);
+            if (await _authService.EnsureValidSessionAsync(CancellationToken.None))
+            {
+                return true;
+            }
         }
         catch
         {
-            await _authService.ClearAsync(CancellationToken.None);
-            return false;
+            // A transport failure must not discard a session the header is still showing.
         }
+
+        return await _authService.GetSessionAsync(CancellationToken.None) is not null;
+    }
+
+    private void ShowOrdersLoadError(Exception exception)
+    {
+        _requiresLogin = false;
+        var message = BackendApiErrorMessages.GetFriendlyMessage(exception);
+        _ordersLoadError = _rows.Count == 0 ? message : null;
+        _statusLabel.Text = message;
+        UpdateEmptyState();
+        if (_pickerMode && BackendApiErrorMessages.IsConnectionFailure(exception))
+        {
+            return;
+        }
+
+        UiFeedback.ShowWarning(this, message, "Không thể tải đơn hàng proxy");
     }
 
     private void ShowLoginRequiredState()
     {
         _requiresLogin = true;
+        _ordersLoadError = null;
         _orders = [];
         _rows = [];
         _total = null;
@@ -1218,6 +1309,12 @@ public sealed class ProxyOrdersControl : UserControl
         if (_requiresLogin)
         {
             _gridEmptyStateText = "Vui lòng đăng nhập để xem đơn hàng proxy.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_ordersLoadError))
+        {
+            _gridEmptyStateText = _ordersLoadError;
             return;
         }
 
@@ -2328,15 +2425,14 @@ public sealed class ProxyOrdersControl : UserControl
         if (_grid.CurrentCell is not { } cell ||
             cell.RowIndex < 0 ||
             cell.ColumnIndex < 0 ||
-            _grid.Columns[cell.ColumnIndex].DataPropertyName != nameof(ProxyOrderRow.DisplayProxy) ||
-            _grid.Rows[cell.RowIndex].DataBoundItem is not ProxyOrderRow row ||
-            string.IsNullOrWhiteSpace(row.DisplayProxy))
+            !IsInlineCopyColumn(_grid.Columns[cell.ColumnIndex].DataPropertyName) ||
+            _grid.Rows[cell.RowIndex].DataBoundItem is not ProxyOrderRow row)
         {
             return false;
         }
 
-        text = row.DisplayProxy;
-        return true;
+        text = GetInlineCopyText(row, _grid.Columns[cell.ColumnIndex].DataPropertyName);
+        return !string.IsNullOrWhiteSpace(text);
     }
 
     private void ShowProxyCellTextSelector(int rowIndex, int columnIndex, string text)
@@ -2408,10 +2504,13 @@ public sealed class ProxyOrdersControl : UserControl
     {
         if (e.RowIndex >= 0 &&
             e.ColumnIndex >= 0 &&
-            _grid.Columns[e.ColumnIndex].DataPropertyName == nameof(ProxyOrderRow.DisplayProxy) &&
+            IsInlineCopyColumn(_grid.Columns[e.ColumnIndex].DataPropertyName) &&
             _grid.Rows[e.RowIndex].DataBoundItem is ProxyOrderRow proxyRow)
         {
-            ShowProxyCellTextSelector(e.RowIndex, e.ColumnIndex, proxyRow.DisplayProxy);
+            ShowProxyCellTextSelector(
+                e.RowIndex,
+                e.ColumnIndex,
+                GetInlineCopyText(proxyRow, _grid.Columns[e.ColumnIndex].DataPropertyName));
             return;
         }
 
@@ -2428,12 +2527,12 @@ public sealed class ProxyOrdersControl : UserControl
     {
         if (e.RowIndex >= 0 &&
             e.ColumnIndex >= 0 &&
-            _grid.Columns[e.ColumnIndex].DataPropertyName == nameof(ProxyOrderRow.DisplayProxy) &&
+            IsInlineCopyColumn(_grid.Columns[e.ColumnIndex].DataPropertyName) &&
             TryGetProxyCopyButtonBounds(e.RowIndex, e.ColumnIndex, out var proxyCopyButtonBounds) &&
             proxyCopyButtonBounds.Contains(_grid.PointToClient(Cursor.Position)) &&
             _grid.Rows[e.RowIndex].DataBoundItem is ProxyOrderRow proxyRow)
         {
-            CopyTextToClipboard(proxyRow.DisplayProxy);
+            CopyTextToClipboard(GetInlineCopyText(proxyRow, _grid.Columns[e.ColumnIndex].DataPropertyName));
             return;
         }
 
@@ -2630,6 +2729,11 @@ public sealed class ProxyOrdersControl : UserControl
 
     private void UpdateGridActionToolTip(Point location)
     {
+        if (IsColumnResizeGrip(location))
+        {
+            return;
+        }
+
         var hovered = TryGetActionButtonAtPoint(location, out var button) ? button : null;
         var text = hovered?.ToolTip ?? string.Empty;
         _grid.Cursor = IsClickableGridPoint(location) ? Cursors.Hand : Cursors.Default;
@@ -2664,6 +2768,11 @@ public sealed class ProxyOrdersControl : UserControl
         var column = _grid.Columns[hit.ColumnIndex];
         if (hit.RowIndex == -1)
         {
+            if (IsColumnResizeGrip(point))
+            {
+                return false;
+            }
+
             return !_pickerMode && column.DataPropertyName == nameof(ProxyOrderRow.IsSelected);
         }
 
@@ -2677,12 +2786,41 @@ public sealed class ProxyOrdersControl : UserControl
             return !_pickerMode;
         }
 
-        return TryGetProxyCopyButtonBounds(hit.RowIndex, hit.ColumnIndex, out var proxyCopyBounds) && proxyCopyBounds.Contains(point) ||
+            return TryGetProxyCopyButtonBounds(hit.RowIndex, hit.ColumnIndex, out var proxyCopyBounds) && proxyCopyBounds.Contains(point) ||
             column.DataPropertyName == nameof(ProxyOrderRow.Status) &&
                 TryGetStatusCheckButtonBounds(hit.RowIndex, hit.ColumnIndex, out var statusButtonBounds) && statusButtonBounds.Contains(point) ||
             TryGetUsageViewButtonBounds(hit.RowIndex, hit.ColumnIndex, out var usageButtonBounds) && usageButtonBounds.Contains(point) ||
             TryGetInlineEditIconBounds(hit.RowIndex, hit.ColumnIndex, out var inlineEditBounds) && inlineEditBounds.Contains(point) ||
             TryGetActionButtonAtPoint(point, out _);
+    }
+
+    private bool IsColumnResizeGrip(Point point)
+    {
+        if (point.Y < 0 || point.Y > _grid.ColumnHeadersHeight)
+        {
+            return false;
+        }
+
+        foreach (DataGridViewColumn column in _grid.Columns)
+        {
+            if (!column.Visible || column.Resizable == DataGridViewTriState.False)
+            {
+                continue;
+            }
+
+            var bounds = _grid.GetColumnDisplayRectangle(column.Index, cutOverflow: true);
+            if (bounds.Width <= 0)
+            {
+                continue;
+            }
+
+            if (Math.Abs(point.X - (bounds.Right - 1)) <= 5)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void HandleGridKeyDown(object? sender, KeyEventArgs e)
@@ -2978,14 +3116,34 @@ public sealed class ProxyOrdersControl : UserControl
         if (rowIndex < 0 ||
             rowIndex >= _grid.Rows.Count ||
             columnIndex < 0 ||
-            _grid.Columns[columnIndex].DataPropertyName != nameof(ProxyOrderRow.DisplayProxy))
+            !IsInlineCopyColumn(_grid.Columns[columnIndex].DataPropertyName) ||
+            _grid.Rows[rowIndex].DataBoundItem is not ProxyOrderRow row)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(GetInlineCopyText(row, _grid.Columns[columnIndex].DataPropertyName)))
         {
             return false;
         }
 
         bounds = GetProxyCopyButtonBounds(_grid.GetCellDisplayRectangle(columnIndex, rowIndex, cutOverflow: true));
-        return true;
+        return bounds.Width > 0 && bounds.Height > 0;
     }
+
+    private static bool IsInlineCopyColumn(string? propertyName) =>
+        propertyName is nameof(ProxyOrderRow.DisplayProxy)
+            or nameof(ProxyOrderRow.OrderCode)
+            or nameof(ProxyOrderRow.DisplayProxyDomain);
+
+    private static string GetInlineCopyText(ProxyOrderRow row, string? propertyName) =>
+        propertyName switch
+        {
+            nameof(ProxyOrderRow.DisplayProxy) => row.DisplayProxy,
+            nameof(ProxyOrderRow.OrderCode) => row.OrderCode,
+            nameof(ProxyOrderRow.DisplayProxyDomain) => row.DisplayProxyDomain,
+            _ => string.Empty
+        };
 
     private static Rectangle GetProxyCopyButtonBounds(Rectangle cellBounds)
     {
@@ -3260,9 +3418,15 @@ public sealed class ProxyOrdersControl : UserControl
     {
         if (e.RowIndex < 0 ||
             e.ColumnIndex < 0 ||
-            _grid.Columns[e.ColumnIndex].DataPropertyName != nameof(ProxyOrderRow.DisplayProxy) ||
+            !IsInlineCopyColumn(_grid.Columns[e.ColumnIndex].DataPropertyName) ||
             _grid.Rows[e.RowIndex].DataBoundItem is not ProxyOrderRow row ||
             e.Graphics is null)
+        {
+            return;
+        }
+
+        var text = GetInlineCopyText(row, _grid.Columns[e.ColumnIndex].DataPropertyName);
+        if (string.IsNullOrWhiteSpace(text))
         {
             return;
         }
@@ -3276,7 +3440,7 @@ public sealed class ProxyOrdersControl : UserControl
             e.CellBounds.Height);
         TextRenderer.DrawText(
             e.Graphics,
-            row.DisplayProxy,
+            text,
             e.CellStyle?.Font ?? _grid.Font,
             textBounds,
             e.CellStyle?.ForeColor ?? _grid.ForeColor,

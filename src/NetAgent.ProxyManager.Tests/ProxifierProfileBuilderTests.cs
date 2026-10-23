@@ -310,4 +310,36 @@ public sealed class ProxifierProfileBuilderTests
         rules[1].Element("Name")!.Value.Should().Be("Default");
         rules[1].Element("Action")!.Attribute("type")!.Value.Should().Be("Direct");
     }
+
+    [Fact]
+    public void Build_ShouldRouteTheToolExecutableDirectBeforeApplicationRules()
+    {
+        var proxy = new ProxyServer
+        {
+            Proxy = "203.0.113.10:8080",
+            Protocol = ProxyProtocol.Socks5
+        };
+        var builder = new ProxifierProfileBuilder();
+
+        var result = builder.Build(new ProxifierProfileModel
+        {
+            Proxies = [proxy],
+            DirectExecutablePaths = [@"D:\tool-ip\ProxyManager.App.exe"],
+            Rules =
+            [
+                new ApplicationRule
+                {
+                    ExecutableName = "chrome.exe",
+                    AssignedProxyId = proxy.Id
+                }
+            ]
+        });
+
+        var rules = XDocument.Parse(result.Xml).Root!.Element("RuleList")!.Elements("Rule").ToList();
+        rules.Select(rule => rule.Element("Name")!.Value)
+            .Should()
+            .Equal("Localhost", "ProxyManager", "chrome.exe", "Default");
+        rules[1].Element("Action")!.Attribute("type")!.Value.Should().Be("Direct");
+        rules[1].Element("Applications")!.Value.Should().Be(@"D:\tool-ip\ProxyManager.App.exe");
+    }
 }

@@ -203,6 +203,7 @@ internal static class DesignedGridTheme
         using var pen = new Pen(RowBorderColor, 1);
         var bottom = grid.ClientSize.Height - 1;
         var right = grid.ClientSize.Width - 1;
+        var columnsRight = 0;
         var headerBottom = grid.ColumnHeadersVisible ? Math.Min(bottom, grid.ColumnHeadersHeight - 1) : 0;
         var contentBottom = headerBottom;
 
@@ -229,19 +230,27 @@ internal static class DesignedGridTheme
                 continue;
             }
 
-            var bounds = grid.GetColumnDisplayRectangle(column.Index, cutOverflow: true);
+            var bounds = grid.GetColumnDisplayRectangle(column.Index, cutOverflow: false);
             if (bounds.Width <= 0)
             {
                 continue;
             }
 
-            var x = Math.Min(right, bounds.Right - 1);
+            columnsRight = Math.Max(columnsRight, bounds.Right);
+            var x = bounds.Right - 1;
+            if (x <= 0 || x >= grid.ClientSize.Width - 1)
+            {
+                continue;
+            }
+
             e.Graphics.DrawLine(pen, x, 0, x, contentBottom);
         }
 
+        var lineRight = Math.Min(right, Math.Max(0, columnsRight - 1));
+
         if (grid.ColumnHeadersVisible)
         {
-            e.Graphics.DrawLine(pen, 0, headerBottom, right, headerBottom);
+            e.Graphics.DrawLine(pen, 0, headerBottom, lineRight, headerBottom);
         }
 
         foreach (DataGridViewRow row in grid.Rows)
@@ -258,7 +267,7 @@ internal static class DesignedGridTheme
             }
 
             var y = Math.Min(bottom, bounds.Bottom - 1);
-            e.Graphics.DrawLine(pen, 0, y, right, y);
+            e.Graphics.DrawLine(pen, 0, y, lineRight, y);
         }
     }
 }

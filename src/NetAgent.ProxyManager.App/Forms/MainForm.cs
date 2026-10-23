@@ -211,6 +211,7 @@ public sealed class MainForm : Form
 
         BuildUi();
         Shown += async (_, _) => await InitializeAsync();
+        _authService.SessionCleared += HandleSessionCleared;
         FormClosing += HandleFormClosing;
         LightTheme.Apply(this);
         ApplySidebarLayoutState();
@@ -858,7 +859,7 @@ public sealed class MainForm : Form
         _sessionActionControl.StopRequested += async (_, _) => await StopProxySessionAsync();
         _applicationRulesControl.SetLeadingToolbarControl(_sessionActionControl);
 
-        _balanceButton = CreateHeaderButton("Coin", async (_, _) => await OpenDepositModalAsync(), filled: false, image: UiIcons.NewWallet);
+        _balanceButton = CreateHeaderButton("0 đ", async (_, _) => await OpenDepositModalAsync(), filled: false, image: UiIcons.NewWallet);
         _loginButton = CreateHeaderButton("Đăng nhập", async (_, _) => await ShowLoginModalAsync(), filled: true);
         _logoutButton = CreateHeaderButton("Đăng xuất", async (_, _) => await LogoutAsync(), filled: false);
 
@@ -962,7 +963,7 @@ public sealed class MainForm : Form
             string.Empty,
             async (_, _) => await HandleSessionActionAsync());
         _balanceButton = LightTheme.CreateToolbarButton(
-            "Coin",
+            "0 đ",
             async (_, _) => await OpenDepositModalAsync(),
             LightTheme.Warning,
             UiIcons.Coin);
@@ -1902,6 +1903,32 @@ public sealed class MainForm : Form
             ApplyLoggedInAccountState(session.User?.DisplayName ?? AppBranding.AppDisplayName);
             _balanceButton.Text = FormatCoin(session?.User?.Coin);
         }
+
+        if (GetVisibleProxyOrdersControl() is { RequiresLogin: true } orders)
+        {
+            await orders.LoadAsync();
+        }
+    }
+
+    private void HandleSessionCleared(object? sender, EventArgs e)
+    {
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        if (!IsHandleCreated || InvokeRequired)
+        {
+            if (IsHandleCreated)
+            {
+                BeginInvoke(() => HandleSessionCleared(sender, e));
+            }
+
+            return;
+        }
+
+        ApplyLoggedOutAccountState();
+        GetVisibleProxyOrdersControl()?.ShowLoggedOutState();
     }
 
     private void ApplyLoggedOutAccountState()
@@ -1909,7 +1936,7 @@ public sealed class MainForm : Form
         _currentAuthUser = null;
         UpdateSettingsAccountView(null);
         _accountLabel.Text = string.Empty;
-        _balanceButton.Text = "Coin";
+        _balanceButton.Text = "0 đ";
         _loginButton.Visible = true;
         _balanceButton.Visible = false;
         _accountLabel.Visible = false;
@@ -1998,9 +2025,7 @@ public sealed class MainForm : Form
         await RefreshAccountStateAsync();
 
     private static string FormatCoin(long? coin) =>
-        coin is null
-            ? "Coin"
-            : $"{coin.Value.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))} coin";
+        $"{(coin ?? 0).ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))} đ";
 
     private async Task OpenDepositModalAsync()
     {
@@ -2753,8 +2778,20 @@ public sealed class MainForm : Form
     private async void HandleProfileAffectingChanged(object? sender, ProfileAffectingChange change)
     {
         await RefreshStartEligibilityAsync();
+        if (ShouldStartSessionAfterChange(change) &&
+            _runtimeState is not (ProxifierRuntimeState.Running or ProxifierRuntimeState.Starting) &&
+            _hasStartableProxyRule)
+        {
+            await StartProxySessionAsync(showSuccessFeedback: false);
+            return;
+        }
+
         await _profileAutoReloadCoordinator.RequestReloadAsync(change, CancellationToken.None);
     }
+
+    private static bool ShouldStartSessionAfterChange(ProfileAffectingChange change) =>
+        change.Reason.Contains("Gắn proxy", StringComparison.Ordinal) ||
+        change.Reason.Contains("Đổi proxy", StringComparison.Ordinal);
 
     private async Task ReloadActiveProfileOnceAsync(ProfileAffectingChange change)
     {
@@ -3331,8 +3368,8 @@ public sealed class MainForm : Form
         private const int StartHintMinWidth = 400;
         private const int RunningStopWidth = 38;
         private const int RunningGap = 6;
-        private static readonly Color ReadyBackColor = Color.FromArgb(235, 235, 235);
-        private static readonly Color ReadyTextColor = Color.FromArgb(204, 0, 0, 0);
+        private static readonly Color ReadyBackColor = Color.FromArgb(15, 108, 189);
+        private static readonly Color ReadyTextColor = Color.White;
         private static readonly Color DisabledColor = Color.FromArgb(189, 189, 189);
         private static readonly Color RunningColor = Color.FromArgb(14, 164, 0);
         private static readonly Color LoadingBackColor = Color.FromArgb(102, 14, 164, 0);
@@ -3384,12 +3421,12 @@ public sealed class MainForm : Form
                 return new Size(GetRunningControlWidth(), preferredHeight);
             }
 
-            if (!ShowStartHint)
+            if (!ShowHelperText)
             {
                 return new Size(PrimaryButtonWidth, preferredHeight);
             }
 
-            var hintWidth = TextRenderer.MeasureText(GetStartHintText(), HelperTextFont, Size.Empty, TextFormatFlags.NoPadding).Width;
+            var hintWidth = TextRenderer.MeasureText(GetHelperText(), HelperTextFont, Size.Empty, TextFormatFlags.NoPadding).Width;
             return new Size(Math.Max(StartHintMinWidth, Math.Max(PrimaryButtonWidth, hintWidth)), preferredHeight);
         }
 
@@ -3472,7 +3509,7 @@ public sealed class MainForm : Form
             }
 
             PaintSingle(e.Graphics);
-            PaintStartHint(e.Graphics);
+            PaintHelperText(e.Graphics);
         }
 
         private bool IsBusy => _runtimeState is ProxifierRuntimeState.Starting or ProxifierRuntimeState.Stopping;
@@ -3483,7 +3520,7 @@ public sealed class MainForm : Form
 
         private bool IsDisabled => !Enabled || (!IsReady && !IsBusy && !IsRunning);
 
-        private bool ShowStartHint => !IsBusy && !IsRunning && !_canStart;
+        private bool ShowHelperText => !IsBusy && !IsRunning;
 
         private void PaintSingle(Graphics graphics)
         {
@@ -3491,7 +3528,7 @@ public sealed class MainForm : Form
             var text = GetPrimaryText();
             var icon = IsBusy
                 ? LoadIcon("new-design/Loading.svg", RunningColor)
-                : LoadIcon("new-design/Play.svg", IsDisabled ? DisabledColor : ReadyTextColor);
+                : LoadIcon("new-design/Play.svg", IsReady ? Color.White : DisabledColor);
             var backColor = IsBusy
                 ? LoadingBackColor
                 : IsReady
@@ -3524,9 +3561,9 @@ public sealed class MainForm : Form
             DrawButtonContent(graphics, bounds, text, icon, foreColor);
         }
 
-        private void PaintStartHint(Graphics graphics)
+        private void PaintHelperText(Graphics graphics)
         {
-            if (!ShowStartHint)
+            if (!ShowHelperText)
             {
                 return;
             }
@@ -3538,10 +3575,10 @@ public sealed class MainForm : Form
                 HelperTextHeight);
             TextRenderer.DrawText(
                 graphics,
-                GetStartHintText(),
+                GetHelperText(),
                 HelperTextFont,
                 textBounds,
-                HelperTextColor,
+                IsReady ? Color.FromArgb(15, 108, 189) : HelperTextColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
@@ -3655,7 +3692,10 @@ public sealed class MainForm : Form
                 _ => "Bắt đầu dùng proxy"
             };
 
-        private static string GetStartHintText() => "Chọn ít nhất một ứng dụng để bắt đầu";
+        private string GetHelperText() =>
+            _canStart
+                ? "Bấm để ứng dụng đi qua proxy."
+                : "Gắn proxy cho một ứng dụng để bắt đầu.";
 
         private static Bitmap? LoadIcon(string fileName, Color color) =>
             SidebarIconRenderer.Load(fileName, color, IconSize);

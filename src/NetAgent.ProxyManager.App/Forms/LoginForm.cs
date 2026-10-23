@@ -9,12 +9,11 @@ namespace NetAgent.ProxyManager.App.Forms;
 
 public sealed class LoginForm : Form
 {
-    private const int FormWidth = 560;
-    private const int LoginFormHeight = 620;
-    private const int RegisterFormHeight = 820;
-    private const int ContentWidth = 444;
-    private const int FooterHeight = 76;
-    private const int TitleHeight = 48;
+    private const int FormWidth = 480;
+    private const int ContentWidth = 400;
+    private const int FooterHeight = 88;
+    private const int TitleHeight = 40;
+    private const int SidePadding = 40;
 
     private const string GenericLoginError = "Số điện thoại hoặc mật khẩu không đúng.";
     private const string GenericRegisterError = "Không thể đăng ký với thông tin này.";
@@ -37,10 +36,15 @@ public sealed class LoginForm : Form
     private readonly Panel _fieldsHost = new();
     private readonly Label _titleLabel = new();
     private readonly AppPrimaryButton _submitButton = new();
+    private readonly ProgressBar _busyBar = new();
+    private readonly Label _statusLabel = new();
     private readonly FlowLayoutPanel _switchPanel = new();
     private readonly LinkLabel _switchModeLink = new();
     private readonly Label _switchPromptLabel = new();
     private int _nextFieldTop;
+    private bool _isLayingOut;
+    private bool _isBusy;
+    private string _idleButtonText = "Đăng nhập";
 
     private readonly AuthTextInput _loginPhoneInput = new(
         "Số điện thoại",
@@ -76,7 +80,7 @@ public sealed class LoginForm : Form
         _authService = authService;
 
         Text = AppBranding.AppDisplayName;
-        SetAuthFormSize(LoginFormHeight);
+        ClientSize = new Size(FormWidth, 520);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -106,7 +110,7 @@ public sealed class LoginForm : Form
         _bodyPanel.Dock = DockStyle.Fill;
         _bodyPanel.AutoScroll = false;
         _bodyPanel.BackColor = LightTheme.Surface;
-        _bodyPanel.Padding = new Padding(24, 0, 24, 0);
+        _bodyPanel.Padding = Padding.Empty;
 
         _content.Width = ContentWidth;
         _content.BackColor = LightTheme.Surface;
@@ -150,6 +154,13 @@ public sealed class LoginForm : Form
         _fieldsHost.BackColor = LightTheme.Surface;
         _content.Controls.Add(_fieldsHost);
 
+        _statusLabel.AutoSize = false;
+        _statusLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _statusLabel.Font = new Font("Segoe UI", 10f, FontStyle.Regular);
+        _statusLabel.ForeColor = Color.FromArgb(15, 108, 189);
+        _statusLabel.BackColor = LightTheme.Surface;
+        _content.Controls.Add(_statusLabel);
+
         _bodyPanel.Controls.Add(_content);
         CenterContent();
         _bodyPanel.Resize += (_, _) => LayoutContent();
@@ -168,7 +179,7 @@ public sealed class LoginForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = Color.FromArgb(247, 247, 249),
-            Padding = new Padding(34, 16, 34, 16)
+            Padding = new Padding(SidePadding, 12, SidePadding, 12)
         };
         footer.Paint += (_, e) =>
         {
@@ -179,11 +190,18 @@ public sealed class LoginForm : Form
         _submitButton.Text = "Đăng nhập";
         _submitButton.Dock = DockStyle.Fill;
         _submitButton.Font = new Font("Segoe UI", 12f, FontStyle.Bold);
-        _submitButton.Margin = Padding.Empty;
-        _submitButton.MinimumSize = new Size(0, 40);
+        _submitButton.Margin = new Padding(0, 8, 0, 0);
+        _submitButton.MinimumSize = new Size(0, 44);
         _submitButton.Click += async (_, _) => await SubmitAsync();
 
+        _busyBar.Dock = DockStyle.Top;
+        _busyBar.Height = 4;
+        _busyBar.Style = ProgressBarStyle.Marquee;
+        _busyBar.MarqueeAnimationSpeed = 24;
+        _busyBar.Visible = false;
+
         footer.Controls.Add(_submitButton);
+        footer.Controls.Add(_busyBar);
         return footer;
     }
 
@@ -208,33 +226,30 @@ public sealed class LoginForm : Form
 
         if (_isRegisterMode)
         {
-            SetAuthFormSize(RegisterFormHeight);
             Text = "Đăng ký ProxyManager";
             _titleLabel.Text = "Tạo tài khoản mới";
             _switchPromptLabel.Text = "Bạn đã có tài khoản?";
             _switchModeLink.Text = "Đăng nhập";
-            _submitButton.Text = "Đăng ký";
+            _idleButtonText = "Đăng ký";
             BuildRegisterFields();
         }
         else
         {
-            SetAuthFormSize(LoginFormHeight);
             Text = "Đăng nhập ProxyManager";
             _titleLabel.Text = "Đăng nhập";
             _switchPromptLabel.Text = "Bạn chưa có tài khoản?";
             _switchModeLink.Text = "Đăng ký";
-            _submitButton.Text = "Đăng nhập";
+            _idleButtonText = "Đăng nhập";
             BuildLoginFields();
+        }
+
+        if (!_isBusy)
+        {
+            _submitButton.Text = _idleButtonText;
         }
 
         CenterSwitchPanel(_switchPanel);
         LayoutContent();
-    }
-
-    private void SetAuthFormSize(int height)
-    {
-        MinimumSize = new Size(FormWidth, height);
-        Size = new Size(FormWidth, height);
     }
 
     private void BuildLoginFields()
@@ -249,11 +264,15 @@ public sealed class LoginForm : Form
             AutoSize = true,
             ForeColor = Color.FromArgb(207, 19, 34),
             Font = new Font("Segoe UI", 10f, FontStyle.Regular),
-            Location = new Point(0, _nextFieldTop + 2),
+            TextAlign = ContentAlignment.MiddleRight,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Margin = Padding.Empty
         };
+        forgotPassword.Location = new Point(
+            Math.Max(0, ContentWidth - forgotPassword.PreferredSize.Width),
+            _nextFieldTop + 2);
         _fieldsHost.Controls.Add(forgotPassword);
-        _fieldsHost.Height = forgotPassword.Bottom;
+        _fieldsHost.Height = forgotPassword.Bottom + 4;
     }
 
     private void BuildRegisterFields()
@@ -271,7 +290,7 @@ public sealed class LoginForm : Form
         field.Location = new Point(0, _nextFieldTop);
         field.Margin = Padding.Empty;
         _fieldsHost.Controls.Add(field);
-        _nextFieldTop += field.Height + 4;
+        _nextFieldTop += field.Height;
         _fieldsHost.Height = _nextFieldTop;
     }
 
@@ -288,37 +307,73 @@ public sealed class LoginForm : Form
 
     private void LayoutContent()
     {
-        if (_bodyPanel.ClientSize.Width <= 0)
+        if (_isLayingOut || _bodyPanel.ClientSize.Width <= 0)
         {
             return;
         }
 
-        var width = Math.Min(ContentWidth, Math.Max(280, _bodyPanel.ClientSize.Width - _bodyPanel.Padding.Horizontal));
-        var logoTop = 26;
-        var titleTop = 94;
-        var switchTop = _isRegisterMode ? 148 : 148;
-        var fieldsTop = _isRegisterMode ? 200 : 200;
-        var contentHeight = Math.Max(fieldsTop + _fieldsHost.Height, _bodyPanel.ClientSize.Height - 1);
-
-        _content.Width = width;
-        _content.Height = contentHeight;
-        _content.Left = Math.Max(_bodyPanel.Padding.Left, (_bodyPanel.ClientSize.Width - width) / 2);
-        _content.Top = 0;
-
-        if (_content.Controls.Count > 0)
+        _isLayingOut = true;
+        try
         {
-            var logo = _content.Controls[0];
-            logo.Location = new Point((width - logo.Width) / 2, logoTop);
-        }
+            var width = Math.Min(ContentWidth, Math.Max(280, _bodyPanel.ClientSize.Width - (SidePadding * 2)));
+            var left = Math.Max(SidePadding, (_bodyPanel.ClientSize.Width - width) / 2);
+            var y = 28;
 
-        _titleLabel.SetBounds(0, titleTop, width, TitleHeight);
-        _switchPanel.SetBounds(0, switchTop, width, 32);
-        _fieldsHost.SetBounds(0, fieldsTop, width, Math.Max(1, _fieldsHost.Height));
-        CenterSwitchPanel(_switchPanel);
+            if (_content.Controls.Count > 0)
+            {
+                var logo = _content.Controls[0];
+                logo.Location = new Point(left + Math.Max(0, (width - logo.Width) / 2), y);
+                y += logo.Height + 16;
+            }
+
+            _titleLabel.SetBounds(left, y, width, TitleHeight);
+            y += TitleHeight + 2;
+
+            _switchPanel.SetBounds(left, y, width, 32);
+            CenterSwitchPanel(_switchPanel);
+            y += 40;
+
+            foreach (Control field in _fieldsHost.Controls)
+            {
+                if (field is AuthTextInput)
+                {
+                    field.Width = width;
+                }
+                else
+                {
+                    field.Left = Math.Max(0, width - field.PreferredSize.Width);
+                }
+            }
+
+            _fieldsHost.SetBounds(left, y, width, Math.Max(1, _fieldsHost.Height));
+            y += _fieldsHost.Height + 4;
+
+            _statusLabel.SetBounds(left, y, width, 28);
+            y += _statusLabel.Height + 8;
+
+            _content.SetBounds(0, 0, _bodyPanel.ClientSize.Width, y);
+
+            var clientHeight = y + FooterHeight;
+            if (ClientSize.Width != FormWidth || ClientSize.Height != clientHeight)
+            {
+                MinimumSize = Size.Empty;
+                ClientSize = new Size(FormWidth, clientHeight);
+                MinimumSize = new Size(Width, Height);
+            }
+        }
+        finally
+        {
+            _isLayingOut = false;
+        }
     }
 
     private async Task SubmitAsync()
     {
+        if (_isBusy)
+        {
+            return;
+        }
+
         if (_isRegisterMode)
         {
             await RegisterAsync();
@@ -378,8 +433,8 @@ public sealed class LoginForm : Form
         try
         {
             ClearAuthErrors();
-            _submitButton.Enabled = false;
-            SetStatusInfo(busyText);
+            SetBusy(true, busyText);
+            await Task.Yield();
             var session = await action(CancellationToken.None);
             SetStatusInfo($"Đã đăng nhập: {session.User?.DisplayName ?? session.User?.Phone ?? AppBranding.AppDisplayName}");
             DialogResult = DialogResult.OK;
@@ -410,7 +465,10 @@ public sealed class LoginForm : Form
         }
         finally
         {
-            _submitButton.Enabled = true;
+            if (!IsDisposed)
+            {
+                SetBusy(false);
+            }
         }
     }
 
@@ -656,9 +714,42 @@ public sealed class LoginForm : Form
         firstInvalid ??= input;
     }
 
-    private static void SetStatusInfo(string message) => _ = message;
+    private void SetBusy(bool busy, string? message = null)
+    {
+        _isBusy = busy;
+        UseWaitCursor = busy;
+        _submitButton.Enabled = !busy;
+        _submitButton.Text = busy ? message ?? "Đang xử lý..." : _idleButtonText;
+        _switchModeLink.Enabled = !busy;
+        _loginPhoneInput.Enabled = !busy;
+        _loginPasswordInput.Enabled = !busy;
+        _registerFullNameInput.Enabled = !busy;
+        _registerEmailInput.Enabled = !busy;
+        _registerPhoneInput.Enabled = !busy;
+        _registerPasswordInput.Enabled = !busy;
+        _busyBar.Visible = busy;
+        _busyBar.MarqueeAnimationSpeed = busy ? 24 : 0;
 
-    private static void SetStatusError(string message) => _ = message;
+        if (busy && !string.IsNullOrWhiteSpace(message))
+        {
+            SetStatusInfo(message);
+        }
+
+        _submitButton.Refresh();
+        _busyBar.Refresh();
+    }
+
+    private void SetStatusInfo(string message)
+    {
+        _statusLabel.ForeColor = Color.FromArgb(15, 108, 189);
+        _statusLabel.Text = message;
+    }
+
+    private void SetStatusError(string message)
+    {
+        _statusLabel.ForeColor = Color.FromArgb(177, 14, 28);
+        _statusLabel.Text = message;
+    }
 
     private void ClearAuthErrors()
     {
@@ -704,8 +795,8 @@ public sealed class LoginForm : Form
         private const int LabelInputGap = 6;
         private const int InputTop = LabelHeight + LabelInputGap;
         private const int InputHeight = 40;
-        private const int ErrorTop = InputTop + InputHeight + 6;
-        private const int ErrorHeight = 28;
+        private const int ErrorTop = InputTop + InputHeight + 2;
+        private const int ErrorHeight = 16;
         private const int StableHeight = ErrorTop + ErrorHeight;
         private const int IconSize = 20;
         private const int TextLeft = 44;

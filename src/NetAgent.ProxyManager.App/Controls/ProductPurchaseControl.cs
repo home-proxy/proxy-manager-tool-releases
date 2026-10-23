@@ -1165,9 +1165,10 @@ public sealed class ProductPurchaseControl : UserControl
                 await SubmitPurchaseAsync(product, retryAfterLogin: false);
             }
         }
-        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        catch (Exception ex) when (ex is InsufficientCoinException ||
+            ex is HttpRequestException { StatusCode: HttpStatusCode.UnprocessableEntity })
         {
-            _statusLabel.Text = "Không đủ coin để mua proxy.";
+            _statusLabel.Text = "Số dư ví không đủ để mua proxy.";
             using var form = new InsufficientCoinForm();
             if (form.ShowDialog(this) == DialogResult.OK && DepositRequestedAsync is not null)
             {
