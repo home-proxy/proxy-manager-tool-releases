@@ -8,9 +8,8 @@ internal sealed class AppTextInput : UserControl
 {
     // Manual sizing: SearchIconSize/SearchIconTextGap/HorizontalPadding control the search icon layout.
     private const int LabelHeight = 24;
-    private const int InputHeight = 38;
+    private const int InputHeight = LightTheme.FieldHeight;
     private const int ErrorHeight = 24;
-    private const int TextBoxVerticalPadding = 8;
     private const int HorizontalPadding = 8;
     private const int SearchIconSize = 16;
     private const int SearchIconTextGap = 4;
@@ -358,10 +357,9 @@ internal sealed class AppTextInput : UserControl
 
     private void UpdateHeight()
     {
-        var height = (_label.Visible ? _labelHeight : 0) +
-            (_label.Visible ? _labelInputGap : 0) +
+        var height = (HasLabel ? _labelHeight + _labelInputGap : 0) +
             InputHeight +
-            (_errorLabel.Visible ? _errorMessageHeight : 0);
+            (HasError ? _errorMessageHeight : 0);
         Height = height;
         MinimumSize = new Size(MinimumSize.Width, height);
         LayoutChildren();
@@ -369,10 +367,11 @@ internal sealed class AppTextInput : UserControl
 
     private void LayoutChildren()
     {
-        var inputTop = _label.Visible ? _labelHeight + _labelInputGap : 0;
-        _label.SetBounds(0, 0, Width, _label.Visible ? _labelHeight : 0);
+        var inputTop = HasLabel ? _labelHeight + _labelInputGap : 0;
+        var inputBounds = GetInputBounds();
+        _label.SetBounds(0, 0, Math.Max(1, Width), HasLabel ? _labelHeight : 0);
 
-        var textLeft = HorizontalPadding;
+        var textLeft = inputBounds.Left + HorizontalPadding;
         if (ShouldShowSearchIcon())
         {
             textLeft += SearchIconSize + SearchIconTextGap;
@@ -382,24 +381,17 @@ internal sealed class AppTextInput : UserControl
             textLeft += LeadingIconSize + LeadingIconTextGap;
         }
 
-        var rightPadding = HorizontalPadding;
+        var textRight = inputBounds.Right - HorizontalPadding;
         if (_showPasswordToggle)
         {
-            rightPadding += PasswordButtonWidth + 2;
+            textRight -= PasswordButtonWidth + 2;
         }
 
-        var textBoxHeight = GetTextBoxHeight();
-        var textTop = inputTop + Math.Max(0, (InputHeight - textBoxHeight) / 2);
-        _textBox.SetBounds(
-            textLeft,
-            textTop,
-            Math.Max(20, Width - textLeft - rightPadding),
-            textBoxHeight);
-        _placeholderLabel.SetBounds(
-            textLeft,
-            inputTop + 1,
-            Math.Max(20, Width - textLeft - rightPadding),
-            InputHeight - 2);
+        var textWidth = Math.Max(20, textRight - textLeft);
+        var textBoxHeight = GetTextBoxHeight(inputBounds.Height);
+        var textTop = inputBounds.Top + Math.Max(0, (inputBounds.Height - textBoxHeight) / 2);
+        _textBox.SetBounds(textLeft, textTop, textWidth, textBoxHeight);
+        _placeholderLabel.SetBounds(textLeft, textTop, textWidth, textBoxHeight);
 
         _togglePasswordButton.SetBounds(
             Math.Max(HorizontalPadding, Width - HorizontalPadding - PasswordButtonWidth),
@@ -411,26 +403,30 @@ internal sealed class AppTextInput : UserControl
             0,
             inputTop + InputHeight,
             Math.Max(1, Width),
-            _errorLabel.Visible ? _errorMessageHeight : 0);
+            HasError ? _errorMessageHeight : 0);
 
         UpdatePlaceholderVisibility();
         _togglePasswordButton.BringToFront();
         Invalidate();
     }
 
-    private int GetTextBoxHeight()
+    private int GetTextBoxHeight(int borderHeight)
     {
-        var preferredHeight = _textBox.PreferredHeight;
-        var fontHeight = _textBox.Font.Height + TextBoxVerticalPadding;
-        var maximumHeight = Math.Max(1, InputHeight - 6);
-        return Math.Min(maximumHeight, Math.Max(preferredHeight, fontHeight));
+        var preferredHeight = Math.Max(_textBox.PreferredHeight, _textBox.Font.Height);
+        return Math.Min(Math.Max(1, borderHeight - 6), preferredHeight);
     }
 
     private Rectangle GetInputBounds()
     {
-        var inputTop = _label.Visible ? _labelHeight + _labelInputGap : 0;
-        return new Rectangle(0, inputTop, Math.Max(1, Width - 1), InputHeight - 1);
+        var inputTop = HasLabel ? _labelHeight + _labelInputGap : 0;
+        return new Rectangle(1, inputTop + 1, Math.Max(1, Width - 3), Math.Max(1, InputHeight - 3));
     }
+
+    // Control.Visible is false while a parent form has not been shown, even after Visible is set.
+    // Layout must follow the configured text, otherwise the field is placed above its border.
+    private bool HasLabel => !string.IsNullOrWhiteSpace(_label.Text);
+
+    private bool HasError => !string.IsNullOrWhiteSpace(_errorLabel.Text);
 
     private bool ShouldShowSearchIcon() =>
         _showSearchIconOverride ?? LooksLikeSearchInput(_placeholderText);

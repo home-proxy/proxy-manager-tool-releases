@@ -4,8 +4,8 @@ namespace NetAgent.ProxyManager.App.Controls.Primitives;
 
 internal sealed class AppUnderlineTabs : UserControl
 {
-    private static readonly Color ActiveColor = Color.FromArgb(15, 108, 189);
-    private static readonly Color ActiveBackColor = Color.FromArgb(235, 243, 252);
+    private static readonly Color ActiveColor = LightTheme.Accent;
+    private static readonly Color ActiveBackColor = LightTheme.AccentSoft;
 
     private readonly FlowLayoutPanel _tabsPanel = new();
     private readonly List<TabButton> _buttons = [];

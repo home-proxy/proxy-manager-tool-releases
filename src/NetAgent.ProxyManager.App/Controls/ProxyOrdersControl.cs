@@ -57,9 +57,9 @@ public sealed class ProxyOrdersControl : UserControl
     private readonly TableLayoutPanel _emptyStateLayout = new();
     private readonly LinkLabel _emptyStateLabel = new();
     private readonly AppButton _emptyStateLoginButton = new();
-    private readonly ComboBox _searchFieldCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox _searchFieldCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
     private readonly AppTextInput _searchTextBox = new() { Width = 260 };
-    private readonly ComboBox _columnVisibilityCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+    private readonly ComboBox _columnVisibilityCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
     private readonly ComboBox _pageSizeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90 };
     private readonly ContextMenuStrip _rowContextMenu = new();
     private readonly ContextMenuStrip _copyMenu = new();

@@ -897,6 +897,12 @@ public sealed class HomeProxyOrderApiClientTests
         public Task<AuthSession> RegisterAsync(AuthRegisterRequest request, bool rememberSession, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task ForgotPasswordAsync(string email, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<AuthSession?> RefreshAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

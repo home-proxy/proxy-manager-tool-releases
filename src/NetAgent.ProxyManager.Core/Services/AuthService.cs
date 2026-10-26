@@ -37,6 +37,12 @@ public sealed class AuthService(
         CancellationToken cancellationToken) =>
         WithSessionGate(() => RegisterCoreAsync(request, rememberSession, cancellationToken), cancellationToken);
 
+    public Task ForgotPasswordAsync(string email, CancellationToken cancellationToken) =>
+        WithSessionGate(() => ForgotPasswordCoreAsync(email, cancellationToken), cancellationToken);
+
+    public Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken) =>
+        WithSessionGate(() => ResetPasswordCoreAsync(email, hash, password, cancellationToken), cancellationToken);
+
     public Task<AuthSession?> RefreshAsync(CancellationToken cancellationToken) =>
         WithSessionGate(() => RefreshCoreAsync(cancellationToken), cancellationToken);
 
@@ -149,6 +155,40 @@ public sealed class AuthService(
 
         await authApiClient.RegisterAsync(request, cancellationToken);
         return await LoginCoreAsync(request.Phone, request.Password, rememberSession, cancellationToken);
+    }
+
+    private async Task ForgotPasswordCoreAsync(string email, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            throw new ArgumentException("Email is required.", nameof(email));
+        }
+
+        await authApiClient.ForgotPasswordAsync(email.Trim(), cancellationToken);
+    }
+
+    private async Task ResetPasswordCoreAsync(
+        string email,
+        string hash,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            throw new ArgumentException("Email is required.", nameof(email));
+        }
+
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            throw new ArgumentException("Reset code is required.", nameof(hash));
+        }
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("Password is required.", nameof(password));
+        }
+
+        await authApiClient.ResetPasswordAsync(email.Trim(), hash.Trim(), password, cancellationToken);
     }
 
     private async Task<AuthSession?> RefreshCoreAsync(CancellationToken cancellationToken)

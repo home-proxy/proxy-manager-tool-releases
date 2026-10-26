@@ -9,11 +9,23 @@ namespace NetAgent.ProxyManager.App.Forms;
 
 public sealed class LoginForm : Form
 {
-    private const int FormWidth = 480;
-    private const int ContentWidth = 400;
-    private const int FooterHeight = 88;
-    private const int TitleHeight = 40;
+    private const int FormWidth = 560;
+    private const int ContentWidth = 480;
+    private const int FooterHeight = 72;
+    private const int TitleHeight = 36;
+    private const int SubtitleHeight = 28;
+    private const int SwitchHeight = 28;
+    private const int LogoHeight = 44;
     private const int SidePadding = 40;
+    private const int SendButtonWidth = 96;
+    private const int ContentTopPadding = 16;
+    private const int ContentBottomPadding = 8;
+    private const int LogoGap = 12;
+    private const int TitleGap = 6;
+    private const int SubtitleGap = 2;
+    private const int SwitchGap = 16;
+    private const int StatusGap = 4;
+    private const int StatusHeight = 24;
 
     private const string GenericLoginError = "Số điện thoại hoặc mật khẩu không đúng.";
     private const string GenericRegisterError = "Không thể đăng ký với thông tin này.";
@@ -25,6 +37,9 @@ public sealed class LoginForm : Form
     private const string EmailInvalidMessage = "Email không hợp lệ.";
     private const string FullNameRequiredMessage = "Vui lòng nhập họ tên.";
     private const string FullNameInvalidMessage = "Vui lòng nhập đầy đủ họ và tên.";
+    private const string ResetCodeRequiredMessage = "Vui lòng nhập mã nhận được từ email.";
+    private const string ResetCodeInvalidMessage = "Mã không tồn tại hoặc đã hết hạn.";
+    private const string EmailNotFoundMessage = "Email không tồn tại.";
 
     private static readonly Regex PhoneRegex = new(@"^0\d{9}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -35,6 +50,7 @@ public sealed class LoginForm : Form
     private readonly Panel _content = new();
     private readonly Panel _fieldsHost = new();
     private readonly Label _titleLabel = new();
+    private readonly Label _subtitleLabel = new();
     private readonly AppPrimaryButton _submitButton = new();
     private readonly ProgressBar _busyBar = new();
     private readonly Label _statusLabel = new();
@@ -72,15 +88,29 @@ public sealed class LoginForm : Form
         "Nhập mật khẩu của bạn",
         "new-design/lock.svg",
         isPassword: true);
+    private readonly AuthTextInput _forgotEmailInput = new(
+        "Email",
+        "Nhập email đã đăng ký",
+        "new-design/email.svg");
+    private readonly AuthTextInput _forgotCodeInput = new(
+        "Mã xác nhận",
+        "Nhập mã nhận được từ email",
+        "new-design/lock.svg");
+    private readonly AuthTextInput _forgotPasswordInput = new(
+        "Mật khẩu mới",
+        "Nhập mật khẩu mới",
+        "new-design/lock.svg",
+        isPassword: true);
+    private readonly AppButton _sendCodeButton = new();
 
-    private bool _isRegisterMode;
+    private AuthMode _mode = AuthMode.Login;
 
     public LoginForm(IAuthService authService)
     {
         _authService = authService;
 
         Text = AppBranding.AppDisplayName;
-        ClientSize = new Size(FormWidth, 520);
+        ClientSize = new Size(FormWidth, 560);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -124,6 +154,12 @@ public sealed class LoginForm : Form
         _titleLabel.ForeColor = Color.FromArgb(36, 36, 36);
         _content.Controls.Add(_titleLabel);
 
+        _subtitleLabel.AutoSize = false;
+        _subtitleLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _subtitleLabel.Font = new Font("Segoe UI", 10.5f, FontStyle.Regular);
+        _subtitleLabel.ForeColor = Color.FromArgb(115, 115, 115);
+        _content.Controls.Add(_subtitleLabel);
+
         _switchPanel.AutoSize = false;
         _switchPanel.FlowDirection = FlowDirection.LeftToRight;
         _switchPanel.WrapContents = false;
@@ -132,20 +168,26 @@ public sealed class LoginForm : Form
         _switchPromptLabel.AutoSize = true;
         _switchPromptLabel.Font = new Font("Segoe UI", 12.5f, FontStyle.Regular);
         _switchPromptLabel.ForeColor = Color.FromArgb(115, 115, 115);
-        _switchPromptLabel.Margin = new Padding(0, 1, 12, 0);
+        _switchPromptLabel.Margin = new Padding(0, 1, 4, 0);
 
         _switchModeLink.AutoSize = true;
         _switchModeLink.Font = new Font("Segoe UI", 12.5f, FontStyle.Regular);
-        _switchModeLink.LinkColor = Color.FromArgb(15, 108, 189);
-        _switchModeLink.ActiveLinkColor = Color.FromArgb(10, 80, 145);
-        _switchModeLink.VisitedLinkColor = Color.FromArgb(15, 108, 189);
+        _switchModeLink.LinkColor = LightTheme.Accent;
+        _switchModeLink.ActiveLinkColor = LightTheme.AccentPressed;
+        _switchModeLink.VisitedLinkColor = LightTheme.Accent;
         _switchModeLink.Margin = new Padding(0, 1, 0, 0);
         _switchModeLink.LinkBehavior = LinkBehavior.AlwaysUnderline;
         _switchModeLink.Click += (_, _) =>
         {
-            _isRegisterMode = !_isRegisterMode;
+            _mode = _mode == AuthMode.Login ? AuthMode.Register : AuthMode.Login;
             RenderMode();
         };
+
+        _sendCodeButton.Text = "Gửi";
+        _sendCodeButton.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+        _sendCodeButton.Size = new Size(SendButtonWidth, AuthTextInput.InputBoxHeight);
+        _sendCodeButton.Margin = Padding.Empty;
+        _sendCodeButton.Click += async (_, _) => await SendResetCodeAsync();
 
         _switchPanel.Controls.Add(_switchPromptLabel);
         _switchPanel.Controls.Add(_switchModeLink);
@@ -157,7 +199,7 @@ public sealed class LoginForm : Form
         _statusLabel.AutoSize = false;
         _statusLabel.TextAlign = ContentAlignment.MiddleCenter;
         _statusLabel.Font = new Font("Segoe UI", 10f, FontStyle.Regular);
-        _statusLabel.ForeColor = Color.FromArgb(15, 108, 189);
+        _statusLabel.ForeColor = LightTheme.Accent;
         _statusLabel.BackColor = LightTheme.Surface;
         _content.Controls.Add(_statusLabel);
 
@@ -219,28 +261,51 @@ public sealed class LoginForm : Form
         return pictureBox;
     }
 
+    private int DesiredClientHeight =>
+        ContentTopPadding + MeasureStack(_fieldsHost.Height) + ContentBottomPadding + FooterHeight;
+
+    private static int MeasureStack(int fieldsHeight) =>
+        LogoHeight + LogoGap +
+        TitleHeight + TitleGap +
+        SubtitleHeight + SubtitleGap +
+        SwitchHeight + SwitchGap +
+        fieldsHeight + StatusGap +
+        StatusHeight;
+
     private void RenderMode()
     {
         _fieldsHost.Controls.Clear();
         SetStatusInfo(string.Empty);
 
-        if (_isRegisterMode)
+        switch (_mode)
         {
-            Text = "Đăng ký ProxyManager";
-            _titleLabel.Text = "Tạo tài khoản mới";
-            _switchPromptLabel.Text = "Bạn đã có tài khoản?";
-            _switchModeLink.Text = "Đăng nhập";
-            _idleButtonText = "Đăng ký";
-            BuildRegisterFields();
-        }
-        else
-        {
-            Text = "Đăng nhập ProxyManager";
-            _titleLabel.Text = "Đăng nhập";
-            _switchPromptLabel.Text = "Bạn chưa có tài khoản?";
-            _switchModeLink.Text = "Đăng ký";
-            _idleButtonText = "Đăng nhập";
-            BuildLoginFields();
+            case AuthMode.Register:
+                Text = "Đăng ký ProxyManager";
+                _titleLabel.Text = "Tạo tài khoản mới";
+                _subtitleLabel.Text = "Điền thông tin bên dưới để tạo tài khoản.";
+                _switchPromptLabel.Text = "Bạn đã có tài khoản?";
+                _switchModeLink.Text = "Đăng nhập";
+                _idleButtonText = "Đăng ký";
+                BuildRegisterFields();
+                break;
+            case AuthMode.ForgotPassword:
+                Text = "Đặt lại mật khẩu";
+                _titleLabel.Text = "Đặt lại mật khẩu";
+                _subtitleLabel.Text = "Nhập email đã đăng ký. Mã xác nhận sẽ được gửi tới email đó.";
+                _switchPromptLabel.Text = "Bạn đã nhớ mật khẩu?";
+                _switchModeLink.Text = "Đăng nhập";
+                _idleButtonText = "Xác nhận";
+                BuildForgotFields();
+                break;
+            default:
+                Text = "Đăng nhập ProxyManager";
+                _titleLabel.Text = "Đăng nhập";
+                _subtitleLabel.Text = "Nhập số điện thoại và mật khẩu để tiếp tục.";
+                _switchPromptLabel.Text = "Bạn chưa có tài khoản?";
+                _switchModeLink.Text = "Đăng ký";
+                _idleButtonText = "Đăng nhập";
+                BuildLoginFields();
+                break;
         }
 
         if (!_isBusy)
@@ -258,21 +323,41 @@ public sealed class LoginForm : Form
         AddFullWidthField(_loginPhoneInput);
         AddFullWidthField(_loginPasswordInput);
 
-        var forgotPassword = new Label
+        var forgotPassword = new LinkLabel
         {
             Text = "Quên mật khẩu?",
             AutoSize = true,
-            ForeColor = Color.FromArgb(207, 19, 34),
             Font = new Font("Segoe UI", 10f, FontStyle.Regular),
+            LinkColor = LightTheme.Accent,
+            ActiveLinkColor = LightTheme.AccentPressed,
+            VisitedLinkColor = LightTheme.Accent,
+            LinkBehavior = LinkBehavior.AlwaysUnderline,
             TextAlign = ContentAlignment.MiddleRight,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Margin = Padding.Empty
+        };
+        forgotPassword.LinkClicked += (_, _) =>
+        {
+            _mode = AuthMode.ForgotPassword;
+            RenderMode();
         };
         forgotPassword.Location = new Point(
             Math.Max(0, ContentWidth - forgotPassword.PreferredSize.Width),
-            _nextFieldTop + 2);
+            _nextFieldTop + 8);
         _fieldsHost.Controls.Add(forgotPassword);
         _fieldsHost.Height = forgotPassword.Bottom + 4;
+    }
+
+    private void BuildForgotFields()
+    {
+        _nextFieldTop = 0;
+        AddFullWidthField(_forgotEmailInput);
+        AddFullWidthField(_forgotCodeInput);
+        _sendCodeButton.Location = new Point(
+            ContentWidth - SendButtonWidth,
+            _forgotCodeInput.Top + AuthTextInput.InputBoxTop);
+        _fieldsHost.Controls.Add(_sendCodeButton);
+        _forgotCodeInput.Width = Math.Max(120, ContentWidth - SendButtonWidth - 8);
+        AddFullWidthField(_forgotPasswordInput);
     }
 
     private void BuildRegisterFields()
@@ -315,28 +400,49 @@ public sealed class LoginForm : Form
         _isLayingOut = true;
         try
         {
+            if (ClientSize.Width != FormWidth || ClientSize.Height != DesiredClientHeight)
+            {
+                MinimumSize = Size.Empty;
+                ClientSize = new Size(FormWidth, DesiredClientHeight);
+                MinimumSize = new Size(Width, Height);
+            }
+
             var width = Math.Min(ContentWidth, Math.Max(280, _bodyPanel.ClientSize.Width - (SidePadding * 2)));
             var left = Math.Max(SidePadding, (_bodyPanel.ClientSize.Width - width) / 2);
-            var y = 28;
+            var y = ContentTopPadding;
 
             if (_content.Controls.Count > 0)
             {
                 var logo = _content.Controls[0];
                 logo.Location = new Point(left + Math.Max(0, (width - logo.Width) / 2), y);
-                y += logo.Height + 16;
+                y += LogoHeight + LogoGap;
             }
 
             _titleLabel.SetBounds(left, y, width, TitleHeight);
-            y += TitleHeight + 2;
+            y += TitleHeight + TitleGap;
 
-            _switchPanel.SetBounds(left, y, width, 32);
+            _subtitleLabel.SetBounds(left, y, width, SubtitleHeight);
+            y += SubtitleHeight + SubtitleGap;
+
+            _switchPanel.SetBounds(left, y, width, SwitchHeight);
             CenterSwitchPanel(_switchPanel);
-            y += 40;
+            y += SwitchHeight + SwitchGap;
 
             foreach (Control field in _fieldsHost.Controls)
             {
-                if (field is AuthTextInput)
+                if (ReferenceEquals(field, _sendCodeButton))
                 {
+                    continue;
+                }
+
+                if (ReferenceEquals(field, _forgotCodeInput) && _mode == AuthMode.ForgotPassword)
+                {
+                    field.Left = 0;
+                    field.Width = Math.Max(120, width - SendButtonWidth - 8);
+                }
+                else if (field is AuthTextInput)
+                {
+                    field.Left = 0;
                     field.Width = width;
                 }
                 else
@@ -345,21 +451,21 @@ public sealed class LoginForm : Form
                 }
             }
 
-            _fieldsHost.SetBounds(left, y, width, Math.Max(1, _fieldsHost.Height));
-            y += _fieldsHost.Height + 4;
-
-            _statusLabel.SetBounds(left, y, width, 28);
-            y += _statusLabel.Height + 8;
-
-            _content.SetBounds(0, 0, _bodyPanel.ClientSize.Width, y);
-
-            var clientHeight = y + FooterHeight;
-            if (ClientSize.Width != FormWidth || ClientSize.Height != clientHeight)
+            if (_mode == AuthMode.ForgotPassword && _fieldsHost.Controls.Contains(_sendCodeButton))
             {
-                MinimumSize = Size.Empty;
-                ClientSize = new Size(FormWidth, clientHeight);
-                MinimumSize = new Size(Width, Height);
+                _sendCodeButton.SetBounds(
+                    width - SendButtonWidth,
+                    _forgotCodeInput.Top + AuthTextInput.InputBoxTop,
+                    SendButtonWidth,
+                    AuthTextInput.InputBoxHeight);
+                _sendCodeButton.BringToFront();
             }
+
+            _fieldsHost.SetBounds(left, y, width, Math.Max(1, _fieldsHost.Height));
+            y += _fieldsHost.Height + StatusGap;
+
+            _statusLabel.SetBounds(left, y, width, StatusHeight);
+            _content.SetBounds(0, 0, _bodyPanel.ClientSize.Width, _bodyPanel.ClientSize.Height);
         }
         finally
         {
@@ -374,13 +480,99 @@ public sealed class LoginForm : Form
             return;
         }
 
-        if (_isRegisterMode)
+        switch (_mode)
         {
-            await RegisterAsync();
+            case AuthMode.Register:
+                await RegisterAsync();
+                return;
+            case AuthMode.ForgotPassword:
+                await ResetPasswordAsync();
+                return;
+            default:
+                await LoginAsync();
+                return;
+        }
+    }
+
+    private async Task SendResetCodeAsync()
+    {
+        if (_isBusy)
+        {
             return;
         }
 
-        await LoginAsync();
+        ClearAuthErrors();
+        AuthTextInput? firstInvalid = null;
+        if (!ValidateEmail(_forgotEmailInput, ref firstInvalid))
+        {
+            SetStatusError("Vui lòng kiểm tra lại email.");
+            firstInvalid?.FocusInput();
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Đang gửi mã...");
+            await Task.Yield();
+            await _authService.ForgotPasswordAsync(_forgotEmailInput.TextValue.Trim(), CancellationToken.None);
+            SetStatusInfo("Đã gửi mã tới email của bạn. Hãy nhập mã và mật khẩu mới.");
+            _forgotCodeInput.FocusInput();
+        }
+        catch (AuthApiException ex)
+        {
+            HandleForgotAuthError(ex);
+        }
+        catch (Exception ex)
+        {
+            SetStatusError(FriendlyAuthMessage(ex, "Không thể gửi mã đặt lại mật khẩu. Vui lòng thử lại sau."));
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                SetBusy(false);
+            }
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        ClearAuthErrors();
+        if (!ValidateForgotInputs())
+        {
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Đang đặt lại mật khẩu...");
+            await Task.Yield();
+            await _authService.ResetPasswordAsync(
+                _forgotEmailInput.TextValue.Trim(),
+                _forgotCodeInput.TextValue.Trim(),
+                _forgotPasswordInput.TextValue,
+                CancellationToken.None);
+            _forgotPasswordInput.Clear();
+            _forgotCodeInput.Clear();
+            _mode = AuthMode.Login;
+            RenderMode();
+            SetStatusInfo("Đặt lại mật khẩu thành công. Hãy đăng nhập bằng mật khẩu mới.");
+        }
+        catch (AuthApiException ex)
+        {
+            HandleForgotAuthError(ex);
+        }
+        catch (Exception ex)
+        {
+            SetStatusError(FriendlyAuthMessage(ex, "Không thể đặt lại mật khẩu. Vui lòng thử lại sau."));
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                SetBusy(false);
+            }
+        }
     }
 
     private async Task LoginAsync()
@@ -453,15 +645,11 @@ public sealed class LoginForm : Form
         }
         catch (Exception ex)
         {
-            var message = UiFeedback.GetFriendlyErrorMessage(ex);
-            if (string.Equals(message, ex.Message, StringComparison.Ordinal))
-            {
-                message = _isRegisterMode
+            SetStatusError(FriendlyAuthMessage(
+                ex,
+                _mode == AuthMode.Register
                     ? "Không thể đăng ký tài khoản. Vui lòng thử lại sau."
-                    : "Không thể xác thực tài khoản. Vui lòng thử lại sau.";
-            }
-
-            SetStatusError(message);
+                    : "Không thể xác thực tài khoản. Vui lòng thử lại sau."));
         }
         finally
         {
@@ -539,6 +727,40 @@ public sealed class LoginForm : Form
         SetStatusError(GenericRegisterError);
     }
 
+    private void HandleForgotAuthError(AuthApiException exception)
+    {
+        if (exception.HasError("email", "emailNotExists"))
+        {
+            SetFieldError(_forgotEmailInput, EmailNotFoundMessage);
+            SetStatusError("Vui lòng kiểm tra lại thông tin đặt lại mật khẩu.");
+            return;
+        }
+
+        if (exception.HasError("email", "invalidEmail"))
+        {
+            SetFieldError(_forgotEmailInput, EmailInvalidMessage);
+            SetStatusError("Vui lòng kiểm tra lại thông tin đặt lại mật khẩu.");
+            return;
+        }
+
+        if (exception.HasError("hash", "invalidHash"))
+        {
+            SetFieldError(_forgotCodeInput, ResetCodeInvalidMessage);
+            SetStatusError("Vui lòng kiểm tra lại mã đặt lại mật khẩu.");
+            return;
+        }
+
+        if (exception.HasError("password", "weakPassword") ||
+            exception.HasError("password", "invalidPassword"))
+        {
+            SetFieldError(_forgotPasswordInput, RegisterPasswordInvalidMessage);
+            SetStatusError("Vui lòng kiểm tra lại mật khẩu mới.");
+            return;
+        }
+
+        SetStatusError("Không thể đặt lại mật khẩu với thông tin này.");
+    }
+
     private bool ValidateLoginInputs()
     {
         AuthTextInput? firstInvalid = null;
@@ -581,6 +803,34 @@ public sealed class LoginForm : Form
         }
 
         return isValid;
+    }
+
+    private bool ValidateForgotInputs()
+    {
+        AuthTextInput? firstInvalid = null;
+        var isValid = true;
+
+        isValid &= ValidateEmail(_forgotEmailInput, ref firstInvalid);
+        isValid &= ValidateRequired(_forgotCodeInput, ResetCodeRequiredMessage, ref firstInvalid);
+        isValid &= ValidateRegisterPassword(_forgotPasswordInput, ref firstInvalid);
+
+        if (!isValid)
+        {
+            SetStatusError("Vui lòng kiểm tra lại thông tin đặt lại mật khẩu.");
+            firstInvalid?.FocusInput();
+        }
+        else
+        {
+            SetStatusInfo(string.Empty);
+        }
+
+        return isValid;
+    }
+
+    private string FriendlyAuthMessage(Exception exception, string fallback)
+    {
+        var message = UiFeedback.GetFriendlyErrorMessage(exception);
+        return string.Equals(message, exception.Message, StringComparison.Ordinal) ? fallback : message;
     }
 
     private static bool ValidateRequired(AuthTextInput input, string message, ref AuthTextInput? firstInvalid)
@@ -673,20 +923,26 @@ public sealed class LoginForm : Form
         if (string.Equals(exception.ParamName, "phone", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Phone", StringComparison.OrdinalIgnoreCase))
         {
-            SetFieldError(_isRegisterMode ? _registerPhoneInput : _loginPhoneInput, PhoneRequiredMessage);
+            SetFieldError(_mode == AuthMode.Register ? _registerPhoneInput : _loginPhoneInput, PhoneRequiredMessage);
             handled = true;
         }
 
         if (string.Equals(exception.ParamName, "password", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Password", StringComparison.OrdinalIgnoreCase))
         {
-            SetFieldError(_isRegisterMode ? _registerPasswordInput : _loginPasswordInput, PasswordRequiredMessage);
+            SetFieldError(PasswordInputForMode(), PasswordRequiredMessage);
             handled = true;
         }
 
         if (message.Contains("Email", StringComparison.OrdinalIgnoreCase))
         {
-            SetFieldError(_registerEmailInput, EmailRequiredMessage);
+            SetFieldError(_mode == AuthMode.ForgotPassword ? _forgotEmailInput : _registerEmailInput, EmailRequiredMessage);
+            handled = true;
+        }
+
+        if (message.Contains("Reset code", StringComparison.OrdinalIgnoreCase))
+        {
+            SetFieldError(_forgotCodeInput, ResetCodeRequiredMessage);
             handled = true;
         }
 
@@ -698,9 +954,22 @@ public sealed class LoginForm : Form
         }
 
         SetStatusError(handled
-            ? (_isRegisterMode ? "Vui lòng kiểm tra lại thông tin đăng ký." : "Vui lòng kiểm tra lại thông tin đăng nhập.")
+            ? _mode switch
+            {
+                AuthMode.Register => "Vui lòng kiểm tra lại thông tin đăng ký.",
+                AuthMode.ForgotPassword => "Vui lòng kiểm tra lại thông tin đặt lại mật khẩu.",
+                _ => "Vui lòng kiểm tra lại thông tin đăng nhập."
+            }
             : UiFeedback.GetFriendlyErrorMessage(exception));
     }
+
+    private AuthTextInput PasswordInputForMode() =>
+        _mode switch
+        {
+            AuthMode.Register => _registerPasswordInput,
+            AuthMode.ForgotPassword => _forgotPasswordInput,
+            _ => _loginPasswordInput
+        };
 
     private void SetFieldError(AuthTextInput input, string message)
     {
@@ -727,6 +996,10 @@ public sealed class LoginForm : Form
         _registerEmailInput.Enabled = !busy;
         _registerPhoneInput.Enabled = !busy;
         _registerPasswordInput.Enabled = !busy;
+        _forgotEmailInput.Enabled = !busy;
+        _forgotCodeInput.Enabled = !busy;
+        _forgotPasswordInput.Enabled = !busy;
+        _sendCodeButton.Enabled = !busy;
         _busyBar.Visible = busy;
         _busyBar.MarqueeAnimationSpeed = busy ? 24 : 0;
 
@@ -741,7 +1014,7 @@ public sealed class LoginForm : Form
 
     private void SetStatusInfo(string message)
     {
-        _statusLabel.ForeColor = Color.FromArgb(15, 108, 189);
+        _statusLabel.ForeColor = LightTheme.Accent;
         _statusLabel.Text = message;
     }
 
@@ -759,6 +1032,16 @@ public sealed class LoginForm : Form
         _registerEmailInput.ClearError();
         _registerPhoneInput.ClearError();
         _registerPasswordInput.ClearError();
+        _forgotEmailInput.ClearError();
+        _forgotCodeInput.ClearError();
+        _forgotPasswordInput.ClearError();
+    }
+
+    private enum AuthMode
+    {
+        Login,
+        Register,
+        ForgotPassword
     }
 
     private static (string FirstName, string LastName) SplitFullName(string fullName)
@@ -792,12 +1075,15 @@ public sealed class LoginForm : Form
     private sealed class AuthTextInput : UserControl
     {
         private const int LabelHeight = 24;
-        private const int LabelInputGap = 6;
-        private const int InputTop = LabelHeight + LabelInputGap;
-        private const int InputHeight = 40;
+        private const int LabelInputGap = 12;
+        public const int InputBoxTop = LabelHeight + LabelInputGap;
+        public const int InputBoxHeight = 40;
+        private const int InputTop = InputBoxTop;
+        private const int InputHeight = InputBoxHeight;
         private const int ErrorTop = InputTop + InputHeight + 2;
         private const int ErrorHeight = 16;
-        private const int StableHeight = ErrorTop + ErrorHeight;
+        public const int ControlHeight = ErrorTop + ErrorHeight;
+        private const int StableHeight = ControlHeight;
         private const int IconSize = 20;
         private const int TextLeft = 44;
         private const int TextBoxVerticalPadding = 8;
@@ -805,7 +1091,7 @@ public sealed class LoginForm : Form
 
         private static readonly Color TextColor = Color.FromArgb(36, 36, 36);
         private static readonly Color BorderColor = Color.FromArgb(209, 209, 209);
-        private static readonly Color FocusBorderColor = Color.FromArgb(15, 108, 189);
+        private static readonly Color FocusBorderColor = LightTheme.Accent;
         private static readonly Color ErrorColor = Color.FromArgb(177, 14, 28);
         private static readonly Color PlaceholderTextColor = Color.FromArgb(115, 115, 115);
         private static readonly Color SurfaceColor = Color.White;

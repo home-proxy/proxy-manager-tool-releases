@@ -41,8 +41,8 @@ public sealed class MainForm : Form
     private static readonly Color SidebarSelectedTextColor = Color.FromArgb(23, 23, 23);
     private static readonly Color SidebarDefaultTextColor = Color.FromArgb(82, 82, 82);
     private static readonly Color SidebarDefaultIconColor = Color.FromArgb(66, 66, 66);
-    private static readonly Color HeaderAccent = Color.FromArgb(15, 108, 189);
-    private static readonly Color HeaderAccentSoft = Color.FromArgb(235, 243, 252);
+    private static readonly Color HeaderAccent = LightTheme.Accent;
+    private static readonly Color HeaderAccentSoft = LightTheme.AccentSoft;
     private static readonly Color HeaderBorder = Color.FromArgb(224, 224, 224);
     private static readonly Color HeaderText = Color.FromArgb(23, 23, 23);
     private static readonly Color HeaderButtonBorder = Color.FromArgb(209, 209, 209);
@@ -75,6 +75,7 @@ public sealed class MainForm : Form
     private readonly IChromeBrowserProvisioner _chromeBrowserProvisioner;
     private readonly ChromeNetworkServiceWatcher _chromeNetworkServiceWatcher;
     private readonly string _portalBaseUrl;
+    private readonly GitHubAppUpdateClient _appUpdateClient;
 
     private readonly Panel _contentPanel = new();
     private readonly List<Button> _sidebarButtons = [];
@@ -195,6 +196,7 @@ public sealed class MainForm : Form
         _chromeProfileService = serviceProvider.GetRequiredService<ChromeProfileService>();
         _chromeBrowserProvisioner = serviceProvider.GetRequiredService<IChromeBrowserProvisioner>();
         _chromeNetworkServiceWatcher = serviceProvider.GetRequiredService<ChromeNetworkServiceWatcher>();
+        _appUpdateClient = serviceProvider.GetRequiredService<GitHubAppUpdateClient>();
         _chromeNetworkServiceWatcher.RuntimeChanged += HandleChromeRuntimeChanged;
         Disposed += (_, _) => _chromeNetworkServiceWatcher.RuntimeChanged -= HandleChromeRuntimeChanged;
         _portalBaseUrl = NormalizePortalBaseUrl(backendApiOptions.Value.PortalBaseUrl);
@@ -763,7 +765,7 @@ public sealed class MainForm : Form
         {
             var selected = ReferenceEquals(button, _selectedSidebarButton);
             button.BackColor = SidebarBackground;
-            button.ForeColor = selected ? SidebarSelectedTextColor : SidebarDefaultTextColor;
+            button.ForeColor = selected ? LightTheme.Accent : SidebarDefaultTextColor;
             button.Font = new Font(selected ? "Segoe UI Semibold" : "Segoe UI", SidebarButtonFontSize, FontStyle.Regular);
             button.FlatAppearance.BorderColor = SidebarBackground;
             button.FlatAppearance.MouseOverBackColor = SidebarMenuHoverColor;
@@ -1155,7 +1157,8 @@ public sealed class MainForm : Form
     {
         var card = CreateSettingsCard("Cài đặt chung");
         var content = (TableLayoutPanel)card.Controls[0];
-        content.RowCount = 6;
+        content.RowCount = 7;
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -1232,7 +1235,50 @@ public sealed class MainForm : Form
         _commandResultLabel.BackColor = SettingsCardBackground;
         _commandResultLabel.Margin = new Padding(0, 8, 0, 0);
         content.Controls.Add(_commandResultLabel, 0, 4);
+        content.Controls.Add(BuildAppUpdateSection(), 0, 5);
         return card;
+    }
+
+    private Control BuildAppUpdateSection()
+    {
+        var section = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = SettingsCardBackground,
+            Margin = new Padding(0, 16, 0, 0)
+        };
+        section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        section.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        section.Controls.Add(new Label
+        {
+            Text = $"Phiên bản hiện tại: v{AppUpdateInstaller.DisplayVersion}",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 10f, FontStyle.Regular),
+            ForeColor = HeaderText,
+            BackColor = SettingsCardBackground,
+            Margin = new Padding(0, 0, 0, 8)
+        }, 0, 0);
+
+        var button = new AppPrimaryButton
+        {
+            Text = "Kiểm tra cập nhật",
+            Height = 32,
+            MinimumSize = new Size(150, 32),
+            Margin = Padding.Empty,
+            Padding = new Padding(10, 4, 10, 4),
+            Anchor = AnchorStyles.Left
+        };
+        button.Click += (_, _) =>
+        {
+            using var form = new AppUpdateForm(_appUpdateClient);
+            form.ShowDialog(this);
+        };
+        section.Controls.Add(button, 0, 1);
+        return section;
     }
 
     private static AppCardPanel CreateSettingsCard(string title)
@@ -1871,6 +1917,35 @@ public sealed class MainForm : Form
         await RefreshStartEligibilityAsync();
         RefreshProxifierVisibilityButton(settings.ProxifierExecutablePath);
         await TryAutoInstallProxifierSilentlyAsync();
+        await PromptForAppUpdateAsync();
+    }
+
+    private async Task PromptForAppUpdateAsync()
+    {
+        if (AppUpdateInstaller.IsDebugBuild)
+        {
+            return;
+        }
+
+        try
+        {
+            var latest = await _appUpdateClient.GetLatestAsync(CancellationToken.None);
+            if (IsDisposed || latest is null)
+            {
+                return;
+            }
+
+            if (AppUpdateInstaller.CurrentVersion is { } current && latest.Version.CompareTo(current) <= 0)
+            {
+                return;
+            }
+
+            using var form = new AppUpdateForm(_appUpdateClient, latest);
+            form.ShowDialog(this);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidOperationException)
+        {
+        }
     }
 
     private async Task RefreshAccountStateAsync()
@@ -3301,14 +3376,18 @@ public sealed class MainForm : Form
                 return SidebarMenuPressedColor;
             }
 
-            return IsSelected || _isHovering ? SidebarMenuHoverColor : Color.Transparent;
+            if (IsSelected)
+            {
+                return LightTheme.AccentSoft;
+            }
+
+            return _isHovering ? LightTheme.ButtonHover : Color.Transparent;
         }
 
         private void DrawContent(Graphics graphics, Rectangle bounds)
         {
-            var active = Enabled && (IsSelected || _isHovering);
-            var textColor = active ? SidebarSelectedTextColor : SidebarDefaultTextColor;
-            var iconColor = active ? SidebarSelectedTextColor : SidebarDefaultIconColor;
+            var textColor = IsSelected ? LightTheme.Accent : SidebarDefaultTextColor;
+            var iconColor = IsSelected ? LightTheme.Accent : SidebarDefaultIconColor;
             var icon = !string.IsNullOrWhiteSpace(IconFileName)
                 ? SidebarIconRenderer.Load(IconFileName, iconColor, SidebarButtonIconSize)
                 : null;
@@ -3368,7 +3447,7 @@ public sealed class MainForm : Form
         private const int StartHintMinWidth = 400;
         private const int RunningStopWidth = 38;
         private const int RunningGap = 6;
-        private static readonly Color ReadyBackColor = Color.FromArgb(15, 108, 189);
+        private static readonly Color ReadyBackColor = LightTheme.Accent;
         private static readonly Color ReadyTextColor = Color.White;
         private static readonly Color DisabledColor = Color.FromArgb(189, 189, 189);
         private static readonly Color RunningColor = Color.FromArgb(14, 164, 0);
@@ -3578,7 +3657,7 @@ public sealed class MainForm : Form
                 GetHelperText(),
                 HelperTextFont,
                 textBounds,
-                IsReady ? Color.FromArgb(15, 108, 189) : HelperTextColor,
+                IsReady ? LightTheme.Accent : HelperTextColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 

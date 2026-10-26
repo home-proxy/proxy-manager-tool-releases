@@ -403,6 +403,52 @@ public sealed class HomeProxyAuthApiClientTests
         session.AccessToken.Should().Be("new_access");
     }
 
+    [Fact]
+    public async Task ForgotPasswordAsync_ShouldPostEmailToHomeProxy()
+    {
+        string? url = null;
+        string? body = null;
+        using var client = new HttpClient(new AsyncStubHttpMessageHandler(async request =>
+        {
+            url = request.RequestUri!.OriginalString;
+            body = request.Content is null ? null : await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyAuthApiClient(client, Options.Create(new BackendApiOptions()));
+
+        await api.ForgotPasswordAsync("user@example.com", CancellationToken.None);
+
+        url.Should().Be("https://api.homeproxy.vn/api/v1/auth/forgot/password");
+        body.Should().Contain("\"email\":\"user@example.com\"");
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_ShouldPostEmailHashAndPassword()
+    {
+        string? url = null;
+        string? body = null;
+        using var client = new HttpClient(new AsyncStubHttpMessageHandler(async request =>
+        {
+            url = request.RequestUri!.OriginalString;
+            body = request.Content is null ? null : await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }))
+        {
+            BaseAddress = new Uri("https://api.homeproxy.vn/api/")
+        };
+        var api = new HomeProxyAuthApiClient(client, Options.Create(new BackendApiOptions()));
+
+        await api.ResetPasswordAsync("user@example.com", "123456", "new-password", CancellationToken.None);
+
+        url.Should().Be("https://api.homeproxy.vn/api/v1/auth/reset/password");
+        body.Should().Contain("\"email\":\"user@example.com\"");
+        body.Should().Contain("\"hash\":\"123456\"");
+        body.Should().Contain("\"password\":\"new-password\"");
+    }
+
     private static HttpResponseMessage JsonResponse(string json, HttpStatusCode statusCode = HttpStatusCode.OK) =>
         new(statusCode)
         {

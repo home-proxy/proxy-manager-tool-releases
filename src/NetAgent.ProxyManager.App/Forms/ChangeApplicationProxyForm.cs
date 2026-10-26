@@ -20,7 +20,7 @@ public sealed class ChangeApplicationProxyForm : Form
     private readonly Panel _contentHost = new();
     private readonly Panel _manualPage = new();
     private readonly TableLayoutPanel _ordersPage = new();
-    private readonly ComboBox _orderKindCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+    private readonly ComboBox _orderKindCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
     private readonly Button _refreshOrdersButton;
     private readonly AppPrimaryButton _assignButton;
     private readonly AppButton _cancelButton;

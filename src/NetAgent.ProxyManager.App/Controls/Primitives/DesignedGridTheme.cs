@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Runtime.CompilerServices;
 using NetAgent.ProxyManager.App.Theme;
 
 namespace NetAgent.ProxyManager.App.Controls.Primitives;
@@ -15,16 +16,20 @@ internal static class DesignedGridTheme
     public static readonly Color ActiveHeaderBackColor = Color.FromArgb(224, 224, 224);
     public static readonly Color BorderColor = Color.FromArgb(224, 224, 224);
     public static readonly Color RowBorderColor = Color.FromArgb(224, 224, 224);
-    public static readonly Color SelectedRowBackColor = Color.FromArgb(235, 243, 252);
-    public static readonly Color SelectedRowAccentColor = Color.FromArgb(15, 108, 189);
+    public static readonly Color SelectedRowBackColor = LightTheme.AccentSoft;
+    public static readonly Color SelectedRowAccentColor = LightTheme.Accent;
     public static readonly Color TextColor = Color.FromArgb(36, 36, 36);
     public static readonly Color MutedColor = Color.FromArgb(115, 115, 115);
     public static readonly Color IconButtonBackColor = Color.FromArgb(243, 243, 243);
-    public static readonly Color AccentColor = Color.FromArgb(15, 108, 189);
+    public static readonly Color AccentColor = LightTheme.Accent;
     public static readonly Color DangerColor = Color.FromArgb(197, 15, 31);
     public static readonly Font CellFont = CreateFont(1.25f, FontStyle.Regular);
     public static readonly Font ActiveHeaderFont = new(CellFont, FontStyle.Bold);
     public static readonly Font SmallFont = CreateFont(0.75f, FontStyle.Regular);
+    private static readonly ConditionalWeakTable<DataGridView, GridMetrics> MetricOverrides = new();
+
+    public static void UseMetrics(DataGridView grid, int headerHeight, int rowHeight) =>
+        MetricOverrides.AddOrUpdate(grid, new GridMetrics(headerHeight, rowHeight));
 
     public static void Apply(DataGridView grid)
     {
@@ -68,14 +73,21 @@ internal static class DesignedGridTheme
     {
         grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
         grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-        grid.ColumnHeadersHeight = HeaderHeight;
-        grid.RowTemplate.Height = RowHeight;
+        var metrics = MetricsFor(grid);
+        grid.ColumnHeadersHeight = metrics.HeaderHeight;
+        grid.RowTemplate.MinimumHeight = metrics.RowHeight;
+        grid.RowTemplate.Height = metrics.RowHeight;
         foreach (DataGridViewRow row in grid.Rows)
         {
-            row.Height = RowHeight;
-            row.MinimumHeight = RowHeight;
+            row.MinimumHeight = metrics.RowHeight;
+            row.Height = metrics.RowHeight;
         }
     }
+
+    private static GridMetrics MetricsFor(DataGridView grid) =>
+        MetricOverrides.TryGetValue(grid, out var metrics)
+            ? metrics
+            : new GridMetrics(HeaderHeight, RowHeight);
 
     public static void PaintHeaderCell(DataGridView grid, DataGridViewCellPaintingEventArgs e, bool active)
     {
@@ -201,6 +213,8 @@ internal static class DesignedGridTheme
         }
 
         using var pen = new Pen(RowBorderColor, 1);
+        var previousSmoothing = e.Graphics.SmoothingMode;
+        e.Graphics.SmoothingMode = SmoothingMode.None;
         var bottom = grid.ClientSize.Height - 1;
         var right = grid.ClientSize.Width - 1;
         var columnsRight = 0;
@@ -269,5 +283,9 @@ internal static class DesignedGridTheme
             var y = Math.Min(bottom, bounds.Bottom - 1);
             e.Graphics.DrawLine(pen, 0, y, lineRight, y);
         }
+
+        e.Graphics.SmoothingMode = previousSmoothing;
     }
+
+    private sealed record GridMetrics(int HeaderHeight, int RowHeight);
 }

@@ -35,7 +35,7 @@ public sealed class ProductPurchaseControl : UserControl
     private const float DescriptionFontSize = 10.5f;
 
     private static readonly CultureInfo ViCulture = CultureInfo.GetCultureInfo("vi-VN");
-    private static readonly Color PurchaseAccent = Color.FromArgb(15, 108, 189);
+    private static readonly Color PurchaseAccent = LightTheme.Accent;
     private static readonly Color PurchasePanelNeutral = Color.FromArgb(250, 250, 250);
     private static readonly Color DescriptionCardBackColor = Color.White;
     private static readonly Color DescriptionPanelBorder = Color.FromArgb(224, 224, 224);

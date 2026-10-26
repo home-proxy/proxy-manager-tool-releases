@@ -121,7 +121,7 @@ public sealed class ChromeProfilesControl : UserControl
         _hintLabel.ForeColor = DesignedGridTheme.MutedColor;
         _hintLabel.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
         _hintLabel.Text = "Mỗi Chrome profile có cookie/đăng nhập riêng và luôn đi qua đúng 1 proxy. " +
-            "Nếu proxy gặp sự cố, Chrome của profile sẽ bị chặn mạng thay vì lộ IP thật.";
+            "Nếu proxy gặp sự cố, Chrome của profile sẽ bị chặn thay vì lộ IP thật.";
 
         var toolbar = new FlowLayoutPanel
         {

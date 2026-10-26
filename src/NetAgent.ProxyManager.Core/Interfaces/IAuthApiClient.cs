@@ -6,6 +6,8 @@ public interface IAuthApiClient
 {
     Task<AuthSession> LoginAsync(string phone, string password, CancellationToken cancellationToken);
     Task RegisterAsync(AuthRegisterRequest request, CancellationToken cancellationToken);
+    Task ForgotPasswordAsync(string email, CancellationToken cancellationToken);
+    Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken);
     Task<AuthSession> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
     Task<AuthUser> GetMeAsync(string accessToken, CancellationToken cancellationToken);
     Task PatchMeAsync(AuthUpdateRequest request, string accessToken, CancellationToken cancellationToken);

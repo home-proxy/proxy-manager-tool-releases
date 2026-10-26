@@ -6,6 +6,9 @@ namespace NetAgent.ProxyManager.App.Forms;
 public sealed class ChromeProfileNameForm : Form
 {
     private const int MaxNameLength = 80;
+    private const int FormWidth = 480;
+    private const int CompactClientHeight = 160;
+    private const int ErrorClientHeight = 188;
 
     private readonly AppTextInput _nameInput = new("Tên Chrome profile", "Ví dụ: Shop Facebook 1");
     private readonly AppPrimaryButton _saveButton = new();
@@ -14,8 +17,7 @@ public sealed class ChromeProfileNameForm : Form
     public ChromeProfileNameForm()
     {
         Text = "Tạo Chrome profile";
-        Width = 460;
-        Height = 230;
+        ClientSize = new Size(FormWidth, CompactClientHeight);
         MinimizeBox = false;
         MaximizeBox = false;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -43,16 +45,19 @@ public sealed class ChromeProfileNameForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(20, 18, 20, 16),
+            Padding = new Padding(24, 20, 24, 16),
             ColumnCount = 1,
             RowCount = 2,
             BackColor = Color.White
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _nameInput.Dock = DockStyle.Top;
+        _nameInput.LabelInputGap = 8;
+        _nameInput.Margin = new Padding(0, 0, 0, 16);
         _nameInput.MaxLength = MaxNameLength;
+        _nameInput.TextChanged += (_, _) => SetClientHeight(hasError: false);
         layout.Controls.Add(_nameInput, 0, 0);
 
         _saveButton.Text = "Tạo profile";
@@ -67,11 +72,13 @@ public sealed class ChromeProfileNameForm : Form
 
         var buttons = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
-            Margin = Padding.Empty
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
         buttons.Controls.Add(_saveButton);
         buttons.Controls.Add(_cancelButton);
@@ -83,15 +90,26 @@ public sealed class ChromeProfileNameForm : Form
         Shown += (_, _) => _nameInput.FocusInput();
     }
 
+    private void SetClientHeight(bool hasError)
+    {
+        var height = hasError ? ErrorClientHeight : CompactClientHeight;
+        if (ClientSize.Height != height)
+        {
+            ClientSize = new Size(FormWidth, height);
+        }
+    }
+
     private void Submit()
     {
         if (ProfileName.Length == 0)
         {
             _nameInput.SetError("Hãy nhập tên profile.");
+            SetClientHeight(hasError: true);
             return;
         }
 
         _nameInput.ClearError();
+        SetClientHeight(hasError: false);
         DialogResult = DialogResult.OK;
         Close();
     }

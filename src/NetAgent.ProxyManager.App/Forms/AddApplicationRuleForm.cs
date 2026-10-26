@@ -11,7 +11,7 @@ public sealed class AddApplicationRuleForm : Form
 
     private static readonly Color FooterBackground = ColorTranslator.FromHtml("#F7F7F9");
     private static readonly Color FooterBorder = Color.FromArgb(224, 224, 224);
-    private static readonly Color PrimaryButtonColor = Color.FromArgb(15, 108, 189);
+    private static readonly Color PrimaryButtonColor = LightTheme.Accent;
 
     private readonly RunningApplicationSelectionControl _selectionControl;
     private bool _isConfirming;
@@ -130,8 +130,8 @@ public sealed class AddApplicationRuleForm : Form
         };
         button.FlatAppearance.BorderSize = 1;
         button.FlatAppearance.BorderColor = filled ? PrimaryButtonColor : Color.FromArgb(209, 209, 209);
-        button.FlatAppearance.MouseOverBackColor = filled ? Color.FromArgb(18, 121, 211) : Color.FromArgb(245, 245, 245);
-        button.FlatAppearance.MouseDownBackColor = filled ? Color.FromArgb(12, 88, 154) : Color.FromArgb(238, 238, 238);
+        button.FlatAppearance.MouseOverBackColor = filled ? LightTheme.AccentHover : Color.FromArgb(245, 245, 245);
+        button.FlatAppearance.MouseDownBackColor = filled ? LightTheme.AccentPressed : Color.FromArgb(238, 238, 238);
         button.Click += onClick;
         return button;
     }

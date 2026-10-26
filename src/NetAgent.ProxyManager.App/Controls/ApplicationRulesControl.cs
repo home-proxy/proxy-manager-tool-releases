@@ -58,8 +58,8 @@ public sealed class ApplicationRulesControl : UserControl
     private readonly Panel _tableHost = new();
     // Manual sizing: adjust Width here for the application search and filter controls in this toolbar.
     private readonly AppTextInput _searchTextBox = new() { Width = 340 };
-    private readonly ComboBox _enabledFilterCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
-    private readonly ComboBox _columnVisibilityCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+    private readonly ComboBox _enabledFilterCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
+    private readonly ComboBox _columnVisibilityCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
     private readonly ComboBox _pageSizeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90 };
     private readonly Label _statusLabel = AppDataGridFooter.CreateStatusLabel();
     private readonly Label _pageLabel = new();
@@ -463,7 +463,7 @@ public sealed class ApplicationRulesControl : UserControl
         {
             Text = text,
             AutoSize = false,
-            Height = LightTheme.InputHeight,
+            Height = LightTheme.FieldHeight,
             TextAlign = ContentAlignment.MiddleLeft,
             Anchor = AnchorStyles.Left,
             // Manual sizing: change this font size for toolbar labels such as "Dùng Proxy:" and "Hiển thị:".

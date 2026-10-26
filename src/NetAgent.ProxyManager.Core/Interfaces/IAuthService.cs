@@ -11,6 +11,8 @@ public interface IAuthService
     Task<AuthSession> LoginAsync(string phone, string password, bool rememberSession, CancellationToken cancellationToken);
     Task<AuthSession> RegisterAsync(AuthRegisterRequest request, CancellationToken cancellationToken);
     Task<AuthSession> RegisterAsync(AuthRegisterRequest request, bool rememberSession, CancellationToken cancellationToken);
+    Task ForgotPasswordAsync(string email, CancellationToken cancellationToken);
+    Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken);
     Task<AuthSession?> RefreshAsync(CancellationToken cancellationToken);
     Task<AuthUser?> GetCurrentUserAsync(CancellationToken cancellationToken);
     Task<AuthUser> UpdateCurrentUserAsync(AuthUpdateRequest request, CancellationToken cancellationToken);

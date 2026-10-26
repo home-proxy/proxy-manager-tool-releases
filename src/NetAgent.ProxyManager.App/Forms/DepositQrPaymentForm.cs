@@ -17,7 +17,7 @@ public sealed class DepositQrPaymentForm : Form
     private static readonly Color PanelBorder = Color.FromArgb(224, 224, 224);
     private static readonly Color TransferInfoBackground = ColorTranslator.FromHtml("#F7F7F9");
     private static readonly Color QrHeaderBackground = ColorTranslator.FromHtml("#CFE4FA");
-    private static readonly Color PurchaseAccent = Color.FromArgb(15, 108, 189);
+    private static readonly Color PurchaseAccent = LightTheme.Accent;
     private static readonly Color Orange = Color.FromArgb(232, 119, 34);
     private static readonly Color CountdownBack = ColorTranslator.FromHtml("#FFF7E6");
 

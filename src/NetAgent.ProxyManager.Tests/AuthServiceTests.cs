@@ -438,6 +438,12 @@ public sealed class AuthServiceTests
             return Task.CompletedTask;
         }
 
+        public Task ForgotPasswordAsync(string email, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public async Task<AuthSession> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
         {
             RefreshCalls++;

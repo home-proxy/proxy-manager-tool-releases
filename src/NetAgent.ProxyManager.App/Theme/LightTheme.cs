@@ -6,20 +6,23 @@ internal static class LightTheme
 {
     public const string SkipButtonThemeTag = "__skip_button_theme__";
     public const string SkipActiveGridHeaderThemeTag = "__skip_active_grid_header_theme__";
-    public static readonly Color Primary = Color.FromArgb(253, 67, 54);
+    public static readonly Color Accent = Color.FromArgb(232, 93, 4);
+    public static readonly Color AccentHover = Color.FromArgb(208, 78, 0);
+    public static readonly Color AccentPressed = Color.FromArgb(176, 62, 0);
+    public static readonly Color Primary = Accent;
     public static readonly Color Background = Color.White;
     public static readonly Color Surface = Color.White;
-    public static readonly Color SurfaceAlt = Color.FromArgb(236, 241, 250);
-    public static readonly Color Accent = Color.FromArgb(35, 102, 209);
-    public static readonly Color AccentSoft = Color.FromArgb(223, 235, 255);
+    public static readonly Color SurfaceAlt = Color.FromArgb(255, 247, 242);
+    public static readonly Color AccentSoft = Color.FromArgb(255, 237, 224);
     public static readonly Color Success = Color.FromArgb(20, 128, 84);
-    public static readonly Color Warning = Color.FromArgb(196, 112, 16);
+    public static readonly Color Warning = Color.FromArgb(180, 96, 12);
     public static readonly Color Danger = Color.FromArgb(190, 50, 50);
-    public static readonly Color Foreground = Color.FromArgb(31, 41, 55);
-    public static readonly Color Muted = Color.FromArgb(92, 104, 122);
-    public static readonly Color Border = Color.FromArgb(214, 221, 232);
-    public static readonly Color ButtonHover = Color.FromArgb(243, 246, 250);
+    public static readonly Color Foreground = Color.FromArgb(38, 32, 28);
+    public static readonly Color Muted = Color.FromArgb(120, 104, 92);
+    public static readonly Color Border = Color.FromArgb(232, 220, 210);
+    public static readonly Color ButtonHover = Color.FromArgb(255, 244, 235);
     public const int InputHeight = 34;
+    public const int FieldHeight = 38;
     public const int InputUnderlineNormal = 1;
     public const int InputUnderlineActive = 2;
     public const int ButtonRadius = 6;
@@ -158,11 +161,12 @@ internal static class LightTheme
 
     public static void StyleComboBox(ComboBox comboBox)
     {
+        var height = comboBox is AppComboBox ? FieldHeight : InputHeight;
         comboBox.BackColor = Surface;
         comboBox.ForeColor = Foreground;
         comboBox.Font = new Font("Segoe UI", 10f);
-        comboBox.MinimumSize = new Size(Math.Max(80, comboBox.MinimumSize.Width), InputHeight);
-        comboBox.Height = Math.Max(comboBox.Height, InputHeight);
+        comboBox.MinimumSize = new Size(Math.Max(80, comboBox.MinimumSize.Width), height);
+        comboBox.Height = Math.Max(comboBox.Height, height);
     }
 
     public static void StyleTabControl(TabControl tabControl)

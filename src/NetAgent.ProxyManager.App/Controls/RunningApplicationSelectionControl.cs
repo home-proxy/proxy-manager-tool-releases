@@ -22,13 +22,13 @@ public sealed class RunningApplicationSelectionControl : UserControl
     private const int FilterRowHeight = 42;
     private const int StatusRowHeight = 32;
     private const int CompactGridHeaderHeight = 36;
-    private const int CompactGridRowHeight = 28;
+    private const int CompactGridRowHeight = 36;
     private const int ApplicationIconSize = 18;
     private const int DropZoneIconSize = 24;
     private const int RefreshButtonSize = 32;
     private const int StatusBadgeRadius = 8;
 
-    private static readonly Color AccentBlue = Color.FromArgb(15, 108, 189);
+    private static readonly Color AccentBlue = LightTheme.Accent;
     private static readonly Color TextColor = Color.FromArgb(36, 36, 36);
     private static readonly Color MutedTextColor = Color.FromArgb(115, 115, 115);
 
@@ -36,7 +36,7 @@ public sealed class RunningApplicationSelectionControl : UserControl
     private readonly IAppProcessScanner _processScanner;
     private readonly ApplicationSelectionMode _mode;
     private readonly AppTextInput _runningApplicationSearchTextBox = new() { Width = 320 };
-    private readonly ComboBox _runningSelectionFilterCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 183 };
+    private readonly ComboBox _runningSelectionFilterCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 183 };
     private readonly DataGridView _runningApplicationGrid = new AppDataGridView();
     private readonly Label _runningApplicationStatusLabel = new() { AutoSize = true };
     private readonly TableLayoutPanel _runningApplicationActionsLayout = new();
@@ -325,6 +325,7 @@ public sealed class RunningApplicationSelectionControl : UserControl
 
     private void ConfigureRunningApplicationGrid()
     {
+        DesignedGridTheme.UseMetrics(_runningApplicationGrid, CompactGridHeaderHeight, CompactGridRowHeight);
         _runningApplicationGrid.Dock = DockStyle.Fill;
         _runningApplicationGrid.ReadOnly = false;
         _runningApplicationGrid.AllowUserToAddRows = false;
@@ -334,6 +335,8 @@ public sealed class RunningApplicationSelectionControl : UserControl
         _runningApplicationGrid.AutoGenerateColumns = false;
         _runningApplicationGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _runningApplicationGrid.RowTemplate.Height = CompactGridRowHeight;
+        _runningApplicationGrid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
+        _runningApplicationGrid.DefaultCellStyle.Padding = Padding.Empty;
         _runningApplicationGrid.ColumnHeaderMouseClick += HandleRunningApplicationColumnHeaderMouseClick;
         _runningApplicationGrid.CurrentCellDirtyStateChanged += (_, _) =>
         {
@@ -369,12 +372,15 @@ public sealed class RunningApplicationSelectionControl : UserControl
     {
         _runningApplicationGrid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         _runningApplicationGrid.ColumnHeadersHeight = CompactGridHeaderHeight;
+        _runningApplicationGrid.RowTemplate.MinimumHeight = CompactGridRowHeight;
         _runningApplicationGrid.RowTemplate.Height = CompactGridRowHeight;
         foreach (DataGridViewRow row in _runningApplicationGrid.Rows)
         {
-            row.Height = CompactGridRowHeight;
             row.MinimumHeight = CompactGridRowHeight;
+            row.Height = CompactGridRowHeight;
         }
+
+        _runningApplicationGrid.Invalidate();
     }
 
     private void HandleRunningApplicationCellValueChanged(DataGridViewCellEventArgs e)
@@ -978,11 +984,51 @@ public sealed class RunningApplicationSelectionControl : UserControl
             : System.Windows.Forms.VisualStyles.CheckBoxState.MixedNormal;
     }
 
+    private void PaintRunningApplicationCheckCell(DataGridViewCellPaintingEventArgs e)
+    {
+        if (e.Graphics is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        DesignedGridTheme.PaintCellBackgroundAndBorder(
+            e.Graphics,
+            e.CellBounds,
+            isHeader: false,
+            isSelected: DesignedGridTheme.IsSelected(e));
+
+        var row = _runningApplicationGrid.Rows[e.RowIndex].DataBoundItem as RunningApplicationRow;
+        var state = row is null
+            ? System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedDisabled
+            : row.IsImported
+                ? row.IsSelected
+                    ? System.Windows.Forms.VisualStyles.CheckBoxState.CheckedDisabled
+                    : System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedDisabled
+                : row.IsSelected
+                    ? System.Windows.Forms.VisualStyles.CheckBoxState.CheckedNormal
+                    : System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedNormal;
+        var checkBoxSize = CheckBoxRenderer.GetGlyphSize(e.Graphics, state);
+        var checkBoxLocation = new Point(
+            e.CellBounds.Left + (e.CellBounds.Width - checkBoxSize.Width) / 2,
+            e.CellBounds.Top + (e.CellBounds.Height - checkBoxSize.Height) / 2);
+        CheckBoxRenderer.DrawCheckBox(e.Graphics, checkBoxLocation, state);
+    }
+
     private void PaintRunningApplicationNameCell(object? sender, DataGridViewCellPaintingEventArgs e)
     {
-        if (e.RowIndex < 0 ||
-            e.ColumnIndex < 0 ||
-            _runningApplicationGrid.Columns[e.ColumnIndex].DataPropertyName != nameof(RunningApplicationRow.DisplayName) ||
+        if (e.RowIndex < 0 || e.ColumnIndex < 0)
+        {
+            return;
+        }
+
+        if (_runningApplicationGrid.Columns[e.ColumnIndex].DataPropertyName == nameof(RunningApplicationRow.IsSelected))
+        {
+            PaintRunningApplicationCheckCell(e);
+            return;
+        }
+
+        if (_runningApplicationGrid.Columns[e.ColumnIndex].DataPropertyName != nameof(RunningApplicationRow.DisplayName) ||
             _runningApplicationGrid.Rows[e.RowIndex].DataBoundItem is not RunningApplicationRow row)
         {
             return;
@@ -1033,7 +1079,7 @@ public sealed class RunningApplicationSelectionControl : UserControl
             cellFont,
             textBounds,
             textColor,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
         if (hasBadge)
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;

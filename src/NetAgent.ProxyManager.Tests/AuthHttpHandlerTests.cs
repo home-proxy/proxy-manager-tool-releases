@@ -208,6 +208,12 @@ public sealed class AuthHttpHandlerTests
         public Task<AuthSession> RegisterAsync(AuthRegisterRequest request, bool rememberSession, CancellationToken cancellationToken) =>
             throw new NotImplementedException();
 
+        public Task ForgotPasswordAsync(string email, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+
+        public Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+
         public Task<AuthSession?> RefreshAsync(CancellationToken cancellationToken)
         {
             RefreshCalls++;

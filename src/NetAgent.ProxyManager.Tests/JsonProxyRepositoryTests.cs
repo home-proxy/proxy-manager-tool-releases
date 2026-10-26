@@ -192,6 +192,12 @@ public sealed class JsonProxyRepositoryTests
         public Task<AuthSession> RegisterAsync(AuthRegisterRequest request, bool rememberSession, CancellationToken cancellationToken) =>
             Task.FromResult(_session);
 
+        public Task ForgotPasswordAsync(string email, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task ResetPasswordAsync(string email, string hash, string password, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task<AuthSession?> RefreshAsync(CancellationToken cancellationToken) =>
             Task.FromResult<AuthSession?>(_session);
 

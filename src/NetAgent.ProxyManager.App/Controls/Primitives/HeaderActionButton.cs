@@ -6,7 +6,7 @@ internal sealed class HeaderActionButton : Button
 {
     private const int Radius = 4;
     private const int IconTextGap = 4;
-    private static readonly Color DefaultPressedBackColor = Color.FromArgb(235, 243, 252);
+    private static readonly Color DefaultPressedBackColor = LightTheme.AccentSoft;
     private static readonly Color DefaultBorderColor = Color.FromArgb(209, 209, 209);
 
     private bool _isHovering;

@@ -45,10 +45,10 @@ public sealed class ProxyListControl : UserControl
         TabStop = false
     };
     private readonly Label _statusLabel = AppDataGridFooter.CreateStatusLabel();
-    private readonly ComboBox _textFilterColumnCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130 };
+    private readonly ComboBox _textFilterColumnCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130 };
     private readonly AppTextInput _textFilterTextBox = new() { Width = 260 };
-    private readonly ComboBox _protocolFilterCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
-    private readonly ComboBox _statusFilterCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+    private readonly ComboBox _protocolFilterCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+    private readonly ComboBox _statusFilterCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
     private readonly ComboBox _pageSizeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90 };
     private readonly Label _pageLabel = new() { AutoSize = true, TextAlign = ContentAlignment.MiddleCenter };
     private readonly System.Windows.Forms.Timer _textFilterDebounceTimer = new() { Interval = 900 };
@@ -68,6 +68,7 @@ public sealed class ProxyListControl : UserControl
     private int _limit = ProxyOrderListConstants.DefaultLimit;
     private int _filteredCount;
     private bool _isBusy;
+    private bool _isLoadingList;
     private bool _selectionOnlyMode;
 
     public ProxyListControl(
@@ -149,10 +150,11 @@ public sealed class ProxyListControl : UserControl
 
     public async Task LoadAsync()
     {
+        var loaded = false;
         try
         {
             _isBusy = true;
-            _statusLabel.Text = "Đang tải danh sách proxy...";
+            ShowListLoading();
             UpdateSelectionDependentActions();
             _manualProxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None))
                 .Where(proxy => !proxy.IsFromBackend)
@@ -160,12 +162,29 @@ public sealed class ProxyListControl : UserControl
                 .ToList();
             await RefreshUsageCountsAsync();
             BindGrid();
+            loaded = true;
         }
         finally
         {
+            _isLoadingList = false;
             _isBusy = false;
+            if (!loaded)
+            {
+                BindGrid();
+            }
+
             UpdateSelectionDependentActions();
+            _grid.Invalidate();
         }
+    }
+
+    private void ShowListLoading()
+    {
+        _isLoadingList = true;
+        _rows = [];
+        _grid.DataSource = null;
+        _grid.Invalidate();
+        _grid.Update();
     }
 
     public async Task RefreshUsageCountsAsync()
@@ -580,7 +599,7 @@ public sealed class ProxyListControl : UserControl
         {
             Text = text,
             AutoSize = false,
-            Height = LightTheme.InputHeight,
+            Height = LightTheme.FieldHeight,
             TextAlign = ContentAlignment.MiddleLeft,
             Anchor = AnchorStyles.Left,
             Margin = margin
@@ -658,6 +677,11 @@ public sealed class ProxyListControl : UserControl
 
     private GridEmptyStateContent? GetEmptyStateContent()
     {
+        if (_isLoadingList)
+        {
+            return GridEmptyStateContent.TextOnly("Đang tải danh sách proxy...");
+        }
+
         if (_rows.Count > 0)
         {
             return null;

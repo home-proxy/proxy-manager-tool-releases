@@ -46,6 +46,33 @@ public sealed class HomeProxyAuthApiClient(
         await EnsureAuthSuccessAsync(response, cancellationToken);
     }
 
+    public async Task ForgotPasswordAsync(string email, CancellationToken cancellationToken)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            Endpoint("auth/forgot/password"),
+            new { email = email.Trim() },
+            cancellationToken);
+        await EnsureAuthSuccessAsync(response, cancellationToken);
+    }
+
+    public async Task ResetPasswordAsync(
+        string email,
+        string hash,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            Endpoint("auth/reset/password"),
+            new
+            {
+                email = email.Trim(),
+                hash = hash.Trim(),
+                password
+            },
+            cancellationToken);
+        await EnsureAuthSuccessAsync(response, cancellationToken);
+    }
+
     public async Task<AuthSession> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint("auth/refresh"));

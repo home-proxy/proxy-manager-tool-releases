@@ -123,6 +123,13 @@ internal static class Program
                     .ConfigureBackendTransport()
                     .AddHttpMessageHandler<MerchantHeaderHandler>()
                     .AddHttpMessageHandler<BearerTokenHandler>();
+                services.AddHttpClient<GitHubAppUpdateClient>(client =>
+                {
+                    client.BaseAddress = new Uri("https://api.github.com/");
+                    client.Timeout = TimeSpan.FromMinutes(10);
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("ProxyManager");
+                })
+                    .ConfigureBackendTransport();
                 services.AddSingleton<IProxyApiClient>(provider =>
                 {
                     var options = provider.GetRequiredService<IOptions<BackendApiOptions>>().Value;

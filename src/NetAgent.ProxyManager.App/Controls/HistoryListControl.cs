@@ -22,10 +22,10 @@ internal sealed class HistoryListControl : UserControl
     private readonly IAuthService _authService;
     private readonly HistoryListKind _kind;
     private readonly DataGridView _grid = new AppDataGridView();
-    private readonly ComboBox _searchFieldCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox _searchFieldCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
     private readonly AppTextInput _searchTextBox = new() { Width = 260 };
-    private readonly ComboBox _statusCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
-    private readonly ComboBox _columnVisibilityCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox _statusCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox _columnVisibilityCombo = new AppComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
     private readonly ComboBox _pageSizeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 70 };
     private readonly AppClearFilterButton _clearFilterButton = new();
     private readonly Label _pageLabel = new();
