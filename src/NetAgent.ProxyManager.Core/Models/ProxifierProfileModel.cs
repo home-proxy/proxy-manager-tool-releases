@@ -6,6 +6,10 @@ public sealed class ProxifierProfileModel
     public required IReadOnlyList<ApplicationRule> Rules { get; init; }
     public bool DefaultRouteDirect { get; init; } = true;
 
+    // Whole-PC proxy: the "Default" rule sends everything no other rule claimed through this proxy.
+    // Takes precedence over DefaultRouteDirect. Must reference an entry of Proxies.
+    public Guid? DefaultProxyId { get; init; }
+
     // The tool itself must always reach the merchant API on the real network. A proxy rule that
     // also matches ProxyManager would otherwise refuse api.homeproxy.vn while the user stays logged in.
     public IReadOnlyList<string> DirectExecutablePaths { get; init; } = [];

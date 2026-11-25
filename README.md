@@ -17,6 +17,7 @@ Tài liệu dành cho intern/dev mới, đọc theo thứ tự số:
 | [docs/07-branding-assets.md](docs/07-branding-assets.md) | Luồng gán logo & merchant id theo từng đại lý |
 | [docs/08-adding-new-emulator.md](docs/08-adding-new-emulator.md) | Checklist thêm hỗ trợ một loại giả lập mới |
 | [docs/09-chrome-profiles.md](docs/09-chrome-profiles.md) | Tab "Chrome Profile": mỗi profile Chrome một proxy, trình duyệt riêng của tool, rule chặn chống lộ IP |
+| [docs/10-system-wide-proxy.md](docs/10-system-wide-proxy.md) | Gắn proxy cho toàn bộ máy: rule `Default` đi qua proxy, xử lý khi proxy hết hạn, giới hạn |
 
 ## Cấu trúc solution
 

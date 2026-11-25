@@ -342,4 +342,85 @@ public sealed class ProxifierProfileBuilderTests
         rules[1].Element("Action")!.Attribute("type")!.Value.Should().Be("Direct");
         rules[1].Element("Applications")!.Value.Should().Be(@"D:\tool-ip\ProxyManager.App.exe");
     }
+
+    [Fact]
+    public void Build_ShouldRouteDefaultRuleThroughTheWholePcProxy()
+    {
+        var systemProxy = new ProxyServer { Proxy = "203.0.113.20:1080", Protocol = ProxyProtocol.Socks5 };
+        var builder = new ProxifierProfileBuilder();
+
+        var result = builder.Build(new ProxifierProfileModel
+        {
+            Proxies = [systemProxy],
+            Rules = [],
+            DefaultProxyId = systemProxy.Id
+        });
+
+        var root = XDocument.Parse(result.Xml).Root!;
+        var generatedProxy = root.Element("ProxyList")!.Elements("Proxy").Should().ContainSingle().Subject;
+        generatedProxy.Element("Address")!.Value.Should().Be("203.0.113.20");
+
+        var rules = root.Element("RuleList")!.Elements("Rule").ToList();
+        rules.Select(rule => rule.Element("Name")!.Value)
+            .Should().Equal("Localhost", "Local network", "Default");
+        rules[1].Element("Action")!.Attribute("type")!.Value.Should().Be("Direct");
+        rules[1].Element("Targets")!.Value.Should().Contain("192.168.0.0-192.168.255.255");
+        rules[2].Element("Action")!.Attribute("type")!.Value.Should().Be("Proxy");
+        rules[2].Element("Action")!.Value.Should().Be(generatedProxy.Attribute("id")!.Value);
+    }
+
+    [Fact]
+    public void Build_ShouldKeepApplicationRulesAheadOfTheWholePcProxy()
+    {
+        var appProxy = new ProxyServer { Proxy = "203.0.113.10:8080", Protocol = ProxyProtocol.Socks5 };
+        var systemProxy = new ProxyServer { Proxy = "203.0.113.20:1080", Protocol = ProxyProtocol.Socks5 };
+        var builder = new ProxifierProfileBuilder();
+
+        var result = builder.Build(new ProxifierProfileModel
+        {
+            Proxies = [appProxy, systemProxy],
+            Rules = [new ApplicationRule { ExecutableName = "chrome.exe", AssignedProxyId = appProxy.Id }],
+            DirectExecutablePaths = [@"D:\tool-ip\ProxyManager.App.exe"],
+            DefaultProxyId = systemProxy.Id
+        });
+
+        var root = XDocument.Parse(result.Xml).Root!;
+        var profileIdByAddress = root.Element("ProxyList")!.Elements("Proxy")
+            .ToDictionary(proxy => proxy.Element("Address")!.Value, proxy => proxy.Attribute("id")!.Value);
+        profileIdByAddress.Should().HaveCount(2);
+
+        var rules = root.Element("RuleList")!.Elements("Rule").ToList();
+        rules.Select(rule => rule.Element("Name")!.Value)
+            .Should().Equal("Localhost", "ProxyManager", "chrome.exe", "Local network", "Default");
+        rules[1].Element("Action")!.Attribute("type")!.Value.Should().Be("Direct");
+        rules[2].Element("Action")!.Value.Should().Be(profileIdByAddress["203.0.113.10"]);
+        rules[4].Element("Action")!.Value.Should().Be(profileIdByAddress["203.0.113.20"]);
+    }
+
+    [Fact]
+    public void Build_ShouldNotAddLocalNetworkRuleWithoutWholePcProxy()
+    {
+        var builder = new ProxifierProfileBuilder();
+
+        var result = builder.Build(new ProxifierProfileModel { Proxies = [], Rules = [] });
+
+        XDocument.Parse(result.Xml).Root!.Element("RuleList")!.Elements("Rule")
+            .Select(rule => rule.Element("Name")!.Value)
+            .Should().Equal("Localhost", "Default");
+    }
+
+    [Fact]
+    public void Build_ShouldRejectWholePcProxyThatIsNotInTheProxyList()
+    {
+        var builder = new ProxifierProfileBuilder();
+
+        var act = () => builder.Build(new ProxifierProfileModel
+        {
+            Proxies = [],
+            Rules = [],
+            DefaultProxyId = Guid.NewGuid()
+        });
+
+        act.Should().Throw<InvalidOperationException>();
+    }
 }
