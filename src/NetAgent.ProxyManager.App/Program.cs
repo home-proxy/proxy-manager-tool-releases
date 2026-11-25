@@ -155,6 +155,7 @@ internal static class Program
                 services.AddTransient<ProductPurchaseControl>();
                 services.AddTransient<ApplicationRulesControl>();
                 services.AddTransient<ChromeProfilesControl>();
+                services.AddTransient<SystemProxySettingsControl>();
                 services.AddTransient<ChromeProfileNameForm>();
                 services.AddTransient<StatusBarControl>();
                 services.AddTransient<MainForm>();

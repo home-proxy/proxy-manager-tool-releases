@@ -414,30 +414,19 @@ public sealed class ChromeProfilesControl : UserControl
     {
         _proxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None)).ToList();
         var allRules = await _applicationRuleService.GetAllAsync(CancellationToken.None);
-        using var form = _serviceProvider.GetRequiredService<ChangeApplicationProxyForm>();
-        form.LoginRequestedAsync = LoginRequestedAsync;
         var isAssignMode = rule.AssignedProxyId is null;
-        form.Text = isAssignMode ? "Gắn Proxy" : "Đổi Proxy";
-        form.ProfileAffectingChanged += (_, change) => OnProfileAffectingChanged(change);
-        form.LoadContext(allRules, _proxies);
-        if (form.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        var selectedProxy = form.SelectedManualProxy;
+        var selectedProxy = await ChangeApplicationProxyForm.PickProxyAsync(
+            this,
+            _serviceProvider,
+            _proxyManagementService,
+            isAssignMode ? "Gắn Proxy" : "Đổi Proxy",
+            LoginRequestedAsync,
+            OnProfileAffectingChanged,
+            allRules,
+            _proxies);
         if (selectedProxy is null)
         {
-            if (form.SelectedOrder is not { } selectedOrder)
-            {
-                return;
-            }
-
-            selectedProxy = await _proxyManagementService.UpsertBackendOrderAsync(
-                selectedOrder,
-                form.SelectedKind,
-                form.SelectedProxyAddress,
-                CancellationToken.None);
+            return;
         }
 
         var probe = new ApplicationRule

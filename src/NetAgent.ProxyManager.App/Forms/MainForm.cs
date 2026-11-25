@@ -101,6 +101,7 @@ public sealed class MainForm : Form
     private ProductPurchaseControl _purchaseControl = null!;
     private ProxyListControl _myProxyListControl = null!;
     private ChromeProfilesControl _chromeProfilesControl = null!;
+    private SystemProxySettingsControl _systemProxySettingsControl = null!;
     private Button _purchaseSidebarButton = null!;
     private Button _staticProxySidebarButton = null!;
     private Button _datacenterProxySidebarButton = null!;
@@ -144,6 +145,8 @@ public sealed class MainForm : Form
     private ProxyRestartConfirmationPreference _proxyRestartConfirmationPreference =
         ProxyRestartConfirmationPreference.Ask;
     private bool _isUpdatingProxyRestartPreferenceUi;
+    private bool _hasUsableSystemProxy;
+    private Guid? _systemProxyWarningShownFor;
     private bool _isSidebarCollapsed;
     private bool _hasStartableProxyRule;
     private bool _exitCleanupCompleted;
@@ -246,6 +249,10 @@ public sealed class MainForm : Form
         _purchaseControl.LoginRequestedAsync = ShowLoginModalAsync;
         _purchaseControl.DepositRequestedAsync = OpenDepositModalAsync;
         _applicationRulesControl.LoginRequestedAsync = ShowLoginModalAsync;
+        _systemProxySettingsControl = _serviceProvider.GetRequiredService<SystemProxySettingsControl>();
+        _systemProxySettingsControl.LoginRequestedAsync = ShowLoginModalAsync;
+        _systemProxySettingsControl.SystemProxyChangedAsync = HandleSystemProxyChangedAsync;
+        _systemProxySettingsControl.ProfileAffectingChanged += HandleProfileAffectingChanged;
         _applicationRulesControl.ProfileAffectingChanged += HandleProfileAffectingChanged;
         _myProxyListControl.ProfileAffectingChanged += HandleProfileAffectingChanged;
         _staticProxyOrdersControl.ProfileAffectingChanged += HandleProfileAffectingChanged;
@@ -1157,7 +1164,8 @@ public sealed class MainForm : Form
     {
         var card = CreateSettingsCard("Cài đặt chung");
         var content = (TableLayoutPanel)card.Controls[0];
-        content.RowCount = 7;
+        content.RowCount = 8;
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -1229,14 +1237,68 @@ public sealed class MainForm : Form
         content.Controls.Add(keyLayout, 0, 2);
 
         content.Controls.Add(BuildProxyRestartPreferenceRow(), 0, 3);
+        // The settings tab is rebuilt on every visit; the control is reused and only refreshed.
+        content.Controls.Add(_systemProxySettingsControl, 0, 4);
+        _ = _systemProxySettingsControl.LoadAsync();
 
         _commandResultLabel.AutoSize = true;
         _commandResultLabel.ForeColor = LightTheme.Muted;
         _commandResultLabel.BackColor = SettingsCardBackground;
         _commandResultLabel.Margin = new Padding(0, 8, 0, 0);
-        content.Controls.Add(_commandResultLabel, 0, 4);
-        content.Controls.Add(BuildAppUpdateSection(), 0, 5);
+        content.Controls.Add(_commandResultLabel, 0, 5);
+        content.Controls.Add(BuildAppUpdateSection(), 0, 6);
         return card;
+    }
+
+    // Called by SystemProxySettingsControl after the whole-PC proxy choice was saved.
+    private async Task HandleSystemProxyChangedAsync(Guid? proxyId)
+    {
+        _systemProxyWarningShownFor = null;
+        await RefreshStartEligibilityAsync();
+
+        if (_runtimeState == ProxifierRuntimeState.Running)
+        {
+            // No rule is listed as affected: applications that are already running keep their open
+            // connections either way, and none of the per-application rules changed.
+            await _profileAutoReloadCoordinator.RequestReloadAsync(
+                ProfileAffectingChange.ForRules(
+                    proxyId is null ? "Tắt proxy toàn bộ máy" : "Gắn proxy cho toàn bộ máy",
+                    []),
+                CancellationToken.None);
+        }
+        else if (proxyId is not null &&
+            _runtimeState is not (ProxifierRuntimeState.Starting or ProxifierRuntimeState.Stopping) &&
+            _hasUsableSystemProxy)
+        {
+            await StartProxySessionAsync(showSuccessFeedback: false);
+        }
+
+        _statusBarControl.SetStatus(proxyId is null
+            ? "Đã tắt proxy toàn bộ máy."
+            : "Đã gắn proxy cho toàn bộ máy.");
+    }
+
+    // A whole-PC proxy that expired or was deleted makes the session block the default route (see
+    // SystemProxyEligibility.ResolveDefaultRoute). Tell the user once why their apps lost the network.
+    private void WarnIfSystemProxyUnusable(AppSettings settings, IReadOnlyList<ProxyServer> proxies)
+    {
+        var state = SystemProxyEligibility.Evaluate(settings.SystemProxyId, proxies, DateTimeOffset.Now);
+        if (state.State != SystemProxyState.Unusable)
+        {
+            _systemProxyWarningShownFor = null;
+            return;
+        }
+
+        if (_systemProxyWarningShownFor == settings.SystemProxyId)
+        {
+            return;
+        }
+
+        _systemProxyWarningShownFor = settings.SystemProxyId;
+        UiFeedback.ShowWarning(
+            this,
+            $"{state.Message} Các ứng dụng chưa gắn proxy riêng đang bị chặn mạng để không lộ IP thật. Vào Thiết lập để chọn proxy khác hoặc tắt chế độ \"Gắn proxy cho toàn bộ máy\".",
+            "Proxy toàn bộ máy");
     }
 
     private Control BuildAppUpdateSection()
@@ -2158,7 +2220,9 @@ public sealed class MainForm : Form
         var proxies = await _proxyRepository.GetAllAsync(CancellationToken.None);
         var rules = (await _applicationRuleRepository.GetAllAsync(CancellationToken.None)).ToList();
         await ClearMissingProxyAssignmentsAsync(rules, proxies, reloadApplicationGrid: true);
-        _hasStartableProxyRule = ApplicationRuleEligibility.HasAnyUsableEnabledRule(rules, proxies);
+        var settings = await _settingsRepository.GetAsync(CancellationToken.None);
+        _hasUsableSystemProxy = SystemProxyEligibility.Evaluate(settings.SystemProxyId, proxies, DateTimeOffset.Now).IsUsable;
+        _hasStartableProxyRule = _hasUsableSystemProxy || ApplicationRuleEligibility.HasAnyUsableEnabledRule(rules, proxies);
         RefreshSessionActionButton();
     }
 
@@ -2198,6 +2262,7 @@ public sealed class MainForm : Form
         }
 
         _logoutButton.Enabled = false;
+        await ClearBackendSystemProxyForLogoutAsync();
         if (_runtimeState == ProxifierRuntimeState.Running)
         {
             await ReloadProfileForLogoutAsync();
@@ -2206,6 +2271,28 @@ public sealed class MainForm : Form
         await _authService.LogoutAsync(CancellationToken.None);
         _proxyOrderCacheService.Clear();
         await RefreshAfterAuthScopeChangedAsync();
+    }
+
+    // Proxies bought through the account stop being usable after logout, exactly like the rule
+    // assignments RemoveLogoutBackendAssignments clears. Logging out is a deliberate act, so the
+    // whole-PC proxy is switched off instead of being left to block the machine's default route.
+    private async Task ClearBackendSystemProxyForLogoutAsync()
+    {
+        var settings = await _settingsRepository.GetAsync(CancellationToken.None);
+        if (settings.SystemProxyId is not { } systemProxyId)
+        {
+            return;
+        }
+
+        var proxies = await _proxyRepository.GetAllAsync(CancellationToken.None);
+        if (proxies.Any(proxy => proxy.Id == systemProxyId && !proxy.IsFromBackend))
+        {
+            return;
+        }
+
+        settings.SystemProxyId = null;
+        await _settingsRepository.SaveAsync(settings, CancellationToken.None);
+        await _systemProxySettingsControl.LoadAsync();
     }
 
     private async Task ReloadProfileForLogoutAsync()
@@ -2569,11 +2656,14 @@ public sealed class MainForm : Form
             var rules = (await _applicationRuleRepository.GetAllAsync(CancellationToken.None)).ToList();
             await RefreshEmulatorRuntimeTargetsAsync(rules);
 
+            var (defaultProxyId, defaultRouteDirect) =
+                SystemProxyEligibility.ResolveDefaultRoute(settings, proxies, DateTimeOffset.Now);
             var result = _profileBuilder.Build(new ProxifierProfileModel
             {
                 Proxies = proxies,
                 Rules = rules,
-                DefaultRouteDirect = settings.DefaultRouteDirect,
+                DefaultRouteDirect = defaultRouteDirect,
+                DefaultProxyId = defaultProxyId,
                 BlockedExecutablePaths = _chromeBrowserProvisioner.GetInstalledExecutablePaths()
             });
 
@@ -2636,7 +2726,8 @@ public sealed class MainForm : Form
             proxies = await _proxyRepository.GetAllAsync(CancellationToken.None);
             applications = (await _applicationRuleRepository.GetAllAsync(CancellationToken.None)).ToList();
             await ClearMissingProxyAssignmentsAsync(applications, proxies, reloadApplicationGrid: true);
-            _hasStartableProxyRule = ApplicationRuleEligibility.HasAnyUsableEnabledRule(applications, proxies);
+            _hasUsableSystemProxy = SystemProxyEligibility.Evaluate(settings.SystemProxyId, proxies, DateTimeOffset.Now).IsUsable;
+            _hasStartableProxyRule = _hasUsableSystemProxy || ApplicationRuleEligibility.HasAnyUsableEnabledRule(applications, proxies);
             RefreshSessionActionButton();
             if (!_hasStartableProxyRule)
             {
@@ -2654,6 +2745,10 @@ public sealed class MainForm : Form
             RefreshProxifierVisibilityButton(settings.ProxifierExecutablePath);
             _statusBarControl.SetStatus(result.Success ? "Đang dùng proxy." : "Không thể bắt đầu dùng proxy.");
             await RunPostProfileLoadRestartFlowAsync(settings, applications, proxies, result.Success);
+            if (result.Success)
+            {
+                WarnIfSystemProxyUnusable(settings, proxies);
+            }
 
             if (showSuccessFeedback || !result.Success)
             {
@@ -2897,6 +2992,10 @@ public sealed class MainForm : Form
                 : "Tự cập nhật profile Proxifier thất bại.");
             await RunPostProfileLoadRestartFlowAsync(settings, applications, proxies, result.Success, change);
             await RefreshVisibleChromeProfilesControlAsync();
+            if (result.Success)
+            {
+                WarnIfSystemProxyUnusable(settings, proxies);
+            }
 
             if (!result.Success)
             {
@@ -3774,7 +3873,7 @@ public sealed class MainForm : Form
         private string GetHelperText() =>
             _canStart
                 ? "Bấm để ứng dụng đi qua proxy."
-                : "Gắn proxy cho một ứng dụng để bắt đầu.";
+                : "Gắn proxy cho ứng dụng/cả máy để bắt đầu.";
 
         private static Bitmap? LoadIcon(string fileName, Color color) =>
             SidebarIconRenderer.Load(fileName, color, IconSize);

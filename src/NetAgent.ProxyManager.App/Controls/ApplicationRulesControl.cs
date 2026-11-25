@@ -2150,30 +2150,19 @@ public sealed class ApplicationRulesControl : UserControl
     private async Task ChangeProxyAsync(IReadOnlyList<ApplicationRule> selectedRules)
     {
         _proxies = (await _proxyManagementService.GetAllAsync(CancellationToken.None)).ToList();
-        using var form = _serviceProvider.GetRequiredService<ChangeApplicationProxyForm>();
-        form.LoginRequestedAsync = LoginRequestedAsync;
         var isAssignMode = selectedRules.All(rule => rule.AssignedProxyId is null);
-        form.Text = isAssignMode ? "Gắn Proxy" : "Đổi Proxy";
-        form.ProfileAffectingChanged += (_, change) => OnProfileAffectingChanged(change);
-        form.LoadContext(_rules, _proxies);
-        if (form.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        var selectedProxy = form.SelectedManualProxy;
+        var selectedProxy = await ChangeApplicationProxyForm.PickProxyAsync(
+            this,
+            _serviceProvider,
+            _proxyManagementService,
+            isAssignMode ? "Gắn Proxy" : "Đổi Proxy",
+            LoginRequestedAsync,
+            OnProfileAffectingChanged,
+            _rules,
+            _proxies);
         if (selectedProxy is null)
         {
-            if (form.SelectedOrder is not { } selectedOrder)
-            {
-                return;
-            }
-
-            selectedProxy = await _proxyManagementService.UpsertBackendOrderAsync(
-                selectedOrder,
-                form.SelectedKind,
-                form.SelectedProxyAddress,
-                CancellationToken.None);
+            return;
         }
 
         var selectedProxyEligibility = ValidateAssignableProxy(selectedProxy);

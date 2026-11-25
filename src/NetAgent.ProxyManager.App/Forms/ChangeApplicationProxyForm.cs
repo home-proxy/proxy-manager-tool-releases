@@ -1,7 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
 using NetAgent.ProxyManager.App.Controls;
 using NetAgent.ProxyManager.App.Controls.Primitives;
 using NetAgent.ProxyManager.App.Theme;
 using NetAgent.ProxyManager.Core.Models;
+using NetAgent.ProxyManager.Core.Services;
 
 namespace NetAgent.ProxyManager.App.Forms;
 
@@ -92,6 +94,46 @@ public sealed class ChangeApplicationProxyForm : Form
     public string? SelectedProxyAddress { get; private set; }
 
     public event EventHandler<ProfileAffectingChange>? ProfileAffectingChanged;
+
+    // The one way to ask the user for a proxy: shows the dialog and returns the choice as a local
+    // ProxyServer, or null when cancelled. A purchased order only becomes a local ProxyServer once
+    // it is picked, which is why the upsert lives here instead of in every caller.
+    public static async Task<ProxyServer?> PickProxyAsync(
+        IWin32Window owner,
+        IServiceProvider serviceProvider,
+        ProxyManagementService proxyManagementService,
+        string title,
+        Func<Task<bool>>? loginRequestedAsync,
+        Action<ProfileAffectingChange> onProfileAffectingChanged,
+        IReadOnlyList<ApplicationRule> rules,
+        IReadOnlyList<ProxyServer> localProxies)
+    {
+        using var form = serviceProvider.GetRequiredService<ChangeApplicationProxyForm>();
+        form.LoginRequestedAsync = loginRequestedAsync;
+        form.Text = title;
+        form.ProfileAffectingChanged += (_, change) => onProfileAffectingChanged(change);
+        form.LoadContext(rules, localProxies);
+        if (form.ShowDialog(owner) != DialogResult.OK)
+        {
+            return null;
+        }
+
+        if (form.SelectedManualProxy is { } manualProxy)
+        {
+            return manualProxy;
+        }
+
+        if (form.SelectedOrder is not { } selectedOrder)
+        {
+            return null;
+        }
+
+        return await proxyManagementService.UpsertBackendOrderAsync(
+            selectedOrder,
+            form.SelectedKind,
+            form.SelectedProxyAddress,
+            CancellationToken.None);
+    }
 
     public void LoadContext(IReadOnlyList<ApplicationRule> rules, IReadOnlyList<ProxyServer> localProxies)
     {

@@ -14,11 +14,14 @@ public sealed class ProxifierSessionService(
         IReadOnlyList<ApplicationRule> applications,
         CancellationToken cancellationToken)
     {
+        var (defaultProxyId, defaultRouteDirect) =
+            SystemProxyEligibility.ResolveDefaultRoute(settings, proxies, DateTimeOffset.Now);
         var profile = profileBuilder.Build(new ProxifierProfileModel
         {
             Proxies = proxies,
             Rules = applications,
-            DefaultRouteDirect = settings.DefaultRouteDirect,
+            DefaultRouteDirect = defaultRouteDirect,
+            DefaultProxyId = defaultProxyId,
             BlockedExecutablePaths = chromeBrowserProvisioner?.GetInstalledExecutablePaths() ?? [],
             DirectExecutablePaths = GetToolExecutablePaths()
         });
