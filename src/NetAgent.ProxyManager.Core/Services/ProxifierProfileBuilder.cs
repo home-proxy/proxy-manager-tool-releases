@@ -8,6 +8,9 @@ namespace NetAgent.ProxyManager.Core.Services;
 
 public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
 {
+    private const string LocalNetworkTargets =
+        "10.0.0.0-10.255.255.255; 172.16.0.0-172.31.255.255; 192.168.0.0-192.168.255.255; 169.254.0.0-169.254.255.255; *.local";
+
     public GeneratedProfileResult Build(ProxifierProfileModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -46,9 +49,18 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
             throw new InvalidOperationException($"Các giả lập đang bật chưa có PID runtime hợp lệ. Hãy mở giả lập rồi quét lại: {names}");
         }
 
+        if (model.DefaultProxyId is { } missingDefaultProxyId && !proxiesById.ContainsKey(missingDefaultProxyId))
+        {
+            throw new InvalidOperationException("Proxy gắn cho toàn bộ máy không còn tồn tại.");
+        }
+
         var enabledAssignedProxyIds = enabledRules
             .Select(rule => rule.AssignedProxyId!.Value)
             .ToHashSet();
+        if (model.DefaultProxyId is { } defaultProxyId)
+        {
+            enabledAssignedProxyIds.Add(defaultProxyId);
+        }
         var profileProxies = model.Proxies
             .Where(proxy => enabledAssignedProxyIds.Contains(proxy.Id))
             .DistinctBy(proxy => proxy.Id)
@@ -92,10 +104,8 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
                         .Where(path => !string.IsNullOrWhiteSpace(path))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Select(CreateBlockedExecutableRule),
-                    new XElement("Rule",
-                        new XAttribute("enabled", "true"),
-                        new XElement("Action", new XAttribute("type", model.DefaultRouteDirect ? "Direct" : "Block")),
-                        new XElement("Name", "Default")))));
+                    model.DefaultProxyId is null ? null : CreateLocalNetworkRule(),
+                    CreateDefaultRule(model, proxyIdMap))));
 
         var xml = Serialize(profile);
         var maskedPreview = Serialize(MaskPasswords(profile));
@@ -154,6 +164,30 @@ public sealed class ProxifierProfileBuilder : IProxifierProfileBuilder
             new XElement("Action", new XAttribute("type", "Direct")),
             new XElement("Targets", "localhost; 127.0.0.1; %ComputerName%; ::1"),
             new XElement("Name", "Localhost"));
+    }
+
+    // Only emitted for the whole-PC proxy. A remote proxy cannot reach the user's own LAN, so without
+    // this the router page, printers and file shares would all break the moment the default route
+    // becomes a proxy. It sits right before "Default" so per-application rules keep their behaviour.
+    private static XElement CreateLocalNetworkRule()
+    {
+        return new XElement("Rule",
+            new XAttribute("enabled", "true"),
+            new XElement("Action", new XAttribute("type", "Direct")),
+            new XElement("Targets", LocalNetworkTargets),
+            new XElement("Name", "Local network"));
+    }
+
+    private static XElement CreateDefaultRule(ProxifierProfileModel model, IReadOnlyDictionary<Guid, int> proxyIdMap)
+    {
+        var action = model.DefaultProxyId is { } defaultProxyId
+            ? new XElement("Action", new XAttribute("type", "Proxy"), proxyIdMap[defaultProxyId])
+            : new XElement("Action", new XAttribute("type", model.DefaultRouteDirect ? "Direct" : "Block"));
+
+        return new XElement("Rule",
+            new XAttribute("enabled", "true"),
+            action,
+            new XElement("Name", "Default"));
     }
 
     // Must sit after every per-application rule (Proxifier stops at the first match) and before
